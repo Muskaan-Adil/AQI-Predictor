@@ -23,6 +23,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
+      - name: Create empty __init__.py files
+        run: |
+          mkdir -p data_collection feature_engineering models evaluation utils
+          touch data_collection/__init__.py
+          touch feature_engineering/__init__.py
+          touch models/__init__.py
+          touch evaluation/__init__.py
+          touch utils/__init__.py
+          
       - name: Run training pipeline
         env:
           AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
