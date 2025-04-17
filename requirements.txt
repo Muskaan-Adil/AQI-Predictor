@@ -12,3 +12,4 @@ streamlit>=1.8.0
 shap>=0.40.0
 hopsworks>=3.0.0
 PyYAML==6.0
+python-dotenv==1.0.0
