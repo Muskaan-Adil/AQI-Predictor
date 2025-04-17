@@ -1,0 +1,33 @@
+name: Feature Pipeline
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  update_features:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run feature pipeline
+      env:
+        AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
+        OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+        HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        HOPSWORKS_PROJECT_NAME: ${{ secrets.HOPSWORKS_PROJECT_NAME }}
+      run: |
+        python -c "from src.data_collection.data_collector import DataCollector; from src.feature_engineering.feature_generator import FeatureGenerator; from src.feature_engineering.feature_store import FeatureStore; dc = DataCollector(); data = dc.collect_all_cities_data(); fg = FeatureGenerator(); features = fg.generate_all_features(pd.DataFrame(data)); fs = FeatureStore(); fs.store_features(features);"
