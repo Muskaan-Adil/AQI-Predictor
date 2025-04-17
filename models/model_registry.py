@@ -1,17 +1,15 @@
 import pandas as pd
-import numpy as np
-import os
-import json
-import logging
-import hopsworks
 import joblib
+import os
+import logging
 from datetime import datetime
+import hopsworks
 from src.utils.config import Config
 
 logger = logging.getLogger(__name__)
 
 class ModelRegistry:
-    """Class for model registry operations."""
+    """Class for managing the model registry in Hopsworks."""
     
     def __init__(self, project_name=None, api_key=None):
         """Initialize the model registry.
@@ -36,148 +34,165 @@ class ModelRegistry:
                 api_key_value=self.api_key
             )
             self.mr = self.project.get_model_registry()
-            logger.info(f"Connected to Hopsworks model registry")
+            logger.info(f"Connected to Hopsworks project: {self.project_name}")
         except Exception as e:
             logger.error(f"Failed to connect to Hopsworks: {e}")
             self.project = None
             self.mr = None
     
-    def save_model(self, model, model_name, metrics=None, city=None, target_col=None):
+    def save_model(self, model, name, metrics=None, tags=None, description=None, version=None):
         """Save a model to the registry.
         
         Args:
             model: Model object to save.
-            model_name (str): Name of the model.
+            name (str): Model name.
             metrics (dict, optional): Model metrics. Defaults to None.
-            city (str, optional): City name for the model. Defaults to None.
-            target_col (str, optional): Target column for the model. Defaults to None.
+            tags (dict, optional): Model tags. Defaults to None.
+            description (str, optional): Model description. Defaults to None.
+            version (int, optional): Model version. Defaults to None (auto-increment).
             
         Returns:
-            str: Model path in the registry or None if saving failed.
+            object: Saved model metadata.
         """
         if self.mr is None:
             logger.error("Not connected to Hopsworks model registry")
             return None
         
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        full_model_name = f"{model_name}_{target_col or 'unknown'}_{city or 'all'}_{timestamp}"
-        
         try:
-            temp_dir = f"/tmp/{full_model_name}"
-            os.makedirs(temp_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            local_model_path = f"/tmp/{name}_{timestamp}.joblib"
             
-            if hasattr(model, 'save'):
-                model_path = model.save(os.path.join(temp_dir, "model"))
-            else:
-                model_path = os.path.join(temp_dir, "model.joblib")
-                joblib.dump(model, model_path)
+            joblib.dump(model, local_model_path)
             
+            model_metrics = {}
             if metrics:
-                metrics_path = os.path.join(temp_dir, "metrics.json")
-                with open(metrics_path, 'w') as f:
-                    json.dump(metrics, f)
+                for metric_name, metric_value in metrics.items():
+                    model_metrics[metric_name] = metric_value
             
-            model_schema = {
-                "name": full_model_name,
-                "version": 1,
-                "description": f"Model for {target_col or 'unknown'} prediction for {city or 'all cities'}",
-                "model_type": model_name,
-                "target_column": target_col or "unknown",
-                "city": city or "all",
-                "metrics": metrics or {},
-                "timestamp": timestamp
-            }
+            model_tags = {}
+            if tags:
+                model_tags.update(tags)
             
-            model_dir = self.mr.python.create_model(
-                name=full_model_name,
-                metrics=metrics,
-                model_schema=model_schema,
-                description=f"Model for {target_col or 'unknown'} prediction"
-            )
+            model_tags['timestamp'] = timestamp
             
-            model_dir.save(temp_dir)
+            model_dir = None
             
-            logger.info(f"Model saved to registry: {full_model_name}")
-            return full_model_name
+            if version:
+                model_dir = self.mr.get_or_create_model(
+                    name=name,
+                    version=version,
+                    metrics=model_metrics,
+                    description=description or f"Model {name} v{version}"
+                )
+            else:
+                model_dir = self.mr.python.create_model(
+                    name=name,
+                    metrics=model_metrics,
+                    description=description or f"Model {name}"
+                )
+            
+            model_dir.save(local_model_path)
+            
+            for tag_key, tag_value in model_tags.items():
+                model_dir.add_tag(name=tag_key, value=str(tag_value))
+            
+            logger.info(f"Saved model {name} to registry")
+            
+            if os.path.exists(local_model_path):
+                os.remove(local_model_path)
+            
+            return model_dir
         except Exception as e:
             logger.error(f"Failed to save model to registry: {e}")
             return None
     
-    def load_model(self, model_name, version=None):
+    def load_model(self, name, version=None):
         """Load a model from the registry.
         
         Args:
-            model_name (str): Name of the model.
-            version (int, optional): Model version. Defaults to latest.
+            name (str): Model name.
+            version (int, optional): Model version. Defaults to None (latest).
             
         Returns:
-            object: Loaded model or None if loading failed.
+            object: Loaded model.
         """
         if self.mr is None:
             logger.error("Not connected to Hopsworks model registry")
             return None
         
         try:
-            model = self.mr.get_model(name=model_name, version=version)
+            if version:
+                model_dir = self.mr.get_model(name=name, version=version)
+            else:
+                model_dir = self.mr.get_best_model(name=name)
             
-            model_dir = model.download()
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            local_model_path = f"/tmp/{name}_{timestamp}.joblib"
             
-            loaded_model = joblib.load(os.path.join(model_dir, "model.joblib"))
+            model_dir.download()
+            downloaded_model_path = model_dir.get_downloaded_model_path()
             
-            logger.info(f"Model loaded from registry: {model_name}")
-            return loaded_model
+            model = joblib.load(downloaded_model_path)
+            
+            logger.info(f"Loaded model {name} from registry")
+            return model
         except Exception as e:
             logger.error(f"Failed to load model from registry: {e}")
             return None
     
-    def get_best_model(self, city=None, target_col=None):
-        """Get the best model for a city and target column.
+    def get_model_versions(self, name):
+        """Get all versions of a model.
         
         Args:
-            city (str, optional): City name. Defaults to None.
-            target_col (str, optional): Target column. Defaults to None.
+            name (str): Model name.
             
         Returns:
-            object: Best model or None if not found.
+            list: List of model versions.
+        """
+        if self.mr is None:
+            logger.error("Not connected to Hopsworks model registry")
+            return []
+        
+        try:
+            models = self.mr.get_models(name=name)
+            return models
+        except Exception as e:
+            logger.error(f"Failed to get model versions: {e}")
+            return []
+    
+    def get_best_model(self, name, metric='rmse', ascending=True):
+        """Get the best model version based on a metric.
+        
+        Args:
+            name (str): Model name.
+            metric (str, optional): Metric to use for selection. Defaults to 'rmse'.
+            ascending (bool, optional): Sort order (True for lower=better). Defaults to True.
+            
+        Returns:
+            object: Best model version.
         """
         if self.mr is None:
             logger.error("Not connected to Hopsworks model registry")
             return None
         
         try:
-            models = self.mr.get_models()
+            models = self.mr.get_models(name=name)
             
-            filtered_models = []
-            for model in models:
-                model_info = model.to_dict()
-                model_schema = model_info.get('model_schema', {})
-                
-                if model_schema:
-                    schema_city = model_schema.get('city')
-                    schema_target = model_schema.get('target_column')
-                    
-                    if (city is None or schema_city == city) and \
-                       (target_col is None or schema_target == target_col):
-                        filtered_models.append(model)
-            
-            if not filtered_models:
-                logger.warning(f"No models found for city: {city}, target: {target_col}")
+            if not models:
+                logger.warning(f"No models found with name: {name}")
                 return None
             
-            best_model = None
-            best_rmse = float('inf')
+            def get_metric(model):
+                try:
+                    return float(model.get_metrics().get(metric, float('inf')))
+                except:
+                    return float('inf') if ascending else float('-inf')
             
-            for model in filtered_models:
-                metrics = model.get_metrics()
-                if metrics and 'rmse' in metrics and metrics['rmse'] < best_rmse:
-                    best_model = model
-                    best_rmse = metrics['rmse']
+            sorted_models = sorted(models, key=get_metric, reverse=not ascending)
             
-            if best_model:
-                logger.info(f"Best model found: {best_model.name}, RMSE: {best_rmse}")
-                return self.load_model(best_model.name)
+            if sorted_models:
+                return sorted_models[0]
             else:
-                logger.warning("No model with valid metrics found")
                 return None
         except Exception as e:
             logger.error(f"Failed to get best model: {e}")
