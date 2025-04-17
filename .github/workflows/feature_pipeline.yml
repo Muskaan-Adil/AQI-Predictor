@@ -23,10 +23,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
+      - name: Create empty __init__.py files
+        run: |
+          mkdir -p data_collection feature_engineering models evaluation utils
+          touch data_collection/__init__.py
+          touch feature_engineering/__init__.py
+          touch models/__init__.py
+          touch evaluation/__init__.py
+          touch utils/__init__.py
+          
       - name: Run feature pipeline
         env:
           AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         run: |
-          python -c "from data_collector import DataCollector; from feature_generator import FeatureGenerator; from feature_store import FeatureStore; dc = DataCollector(); data = dc.collect_all_cities_data(); fg = FeatureGenerator(); features = fg.generate_all_features(data); fs = FeatureStore(); fs.store_features(features)"
+          python feature_pipeline.py
