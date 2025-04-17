@@ -20,45 +20,24 @@ The application follows a modular architecture:
 4. **Prediction Display** - Streamlit dashboard showing forecasts and insights
 5. **Automation** - GitHub Actions for scheduling pipeline runs
 
-## Project Structure
-pearls-aqi-predictor/
-├── data/ # Directory for storing temporary data
-├── notebooks/ # Jupyter notebooks for EDA
-├── src/
-│ ├── data_collection/ # API integration modules
-│ ├── feature_engineering/ # Feature generation and storage
-│ ├── models/ # ML models implementation
-│ ├── evaluation/ # Model evaluation and selection
-│ ├── dashboard/ # Streamlit dashboard
-│ └── utils/ # Utility functions
-├── .github/workflows/ # GitHub Actions workflows
-├── requirements.txt # Project dependencies
-├── setup.py # Package setup
-├── Dockerfile # Docker configuration
-└── README.md # Project documentation
-
 ## Setup and Installation
 1. Clone the repository:
-git clone https://github.com/Muskaan-Adil/Pearls-AQI-Predictor.git
-cd pearls-aqi-predictor
+   git clone https://github.com/Muskaan-Adil/Pearls-AQI-Predictor.git
+   cd pearls-aqi-predictor
 
-2. Install dependencies:
-pip install -r requirements.txt
+3. Install dependencies: pip install -r requirements.txt
 
-3. Set up environment variables:
-AQICN_API_KEY=your_aqicn_api_key
-OPENWEATHER_API_KEY=your_openweather_api_key
-HOPSWORKS_API_KEY=your_hopsworks_api_key
-HOPSWORKS_PROJECT_NAME=your_hopsworks_project
+5. Set up environment variables:
+   AQICN_API_KEY=your_aqicn_api_key
+   OPENWEATHER_API_KEY=your_openweather_api_key
+   HOPSWORKS_API_KEY=your_hopsworks_api_key
+   HOPSWORKS_PROJECT_NAME=your_hopsworks_project
 
-4. Run the backfill to collect historical data:
-python -m src.feature_engineering.backfill
+7. Run the backfill to collect historical data: python -m src.feature_engineering.backfill
 
-5. Train the models:
-python -m src.models.model_trainer
+8. Train the models: python -m src.models.model_trainer
 
-6. Launch the dashboard:
-streamlit run src.dashboard.app
+9. Launch the dashboard: streamlit run src.dashboard.app
 
 ## Using the Dashboard
 The dashboard allows you to:
