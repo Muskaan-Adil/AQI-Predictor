@@ -1,178 +1,157 @@
-import numpy as np
-import pandas as pd
-import hopsworks
 import logging
-from src.utils.config import Config
+import pandas as pd
+import os
+from datetime import datetime
+
+from utils.config import Config
 
 logger = logging.getLogger(__name__)
 
 class FeatureStore:
-    """Class for interacting with the Hopsworks Feature Store."""
+    """Class for storing features in Hopsworks Feature Store."""
     
-    def __init__(self, project_name=None, api_key=None):
-        """Initialize the feature store connection.
-        
-        Args:
-            project_name (str, optional): Hopsworks project name. Defaults to Config value.
-            api_key (str, optional): Hopsworks API key. Defaults to Config value.
-        """
-        self.project_name = project_name or Config.HOPSWORKS_PROJECT_NAME
-        self.api_key = api_key or Config.HOPSWORKS_API_KEY
+    def __init__(self):
+        """Initialize the feature store."""
+        self.api_key = Config.HOPSWORKS_API_KEY
+        self.project_name = Config.HOPSWORKS_PROJECT_NAME
         self.feature_store_name = Config.FEATURE_STORE_NAME
-        self.project = None
-        self.fs = None
         
-        self._connect()
+        self.can_connect = self.api_key is not None
+        
+        if not self.can_connect:
+            logger.warning("Hopsworks API key not set. Using local storage instead.")
     
-    def _connect(self):
-        """Connect to Hopsworks project and feature store."""
+    def store_features(self, features):
+        """Store features in the feature store."""
+        if not features:
+            logger.warning("No features to store")
+            return
+        
+        logger.info(f"Storing {len(features)} features...")
+        
         try:
-            self.project = hopsworks.login(
+            df = pd.DataFrame(features)
+            
+            if self.can_connect:
+                self._store_in_hopsworks(df)
+            else:
+                self._store_locally(df)
+            
+            logger.info("Features stored successfully")
+        except Exception as e:
+            logger.error(f"Error storing features: {e}")
+    
+    def _store_in_hopsworks(self, df):
+        """Store features in Hopsworks feature store."""
+        try:
+            import hsfs
+            
+            conn = hsfs.connection(
+                host="app.hopsworks.ai",
                 project=self.project_name,
                 api_key_value=self.api_key
             )
-            self.fs = self.project.get_feature_store()
-            logger.info(f"Connected to Hopsworks project: {self.project_name}")
-        except Exception as e:
-            logger.error(f"Failed to connect to Hopsworks: {e}")
-            self.project = None
-            self.fs = None
-    
-    def create_feature_group(self, name, version=1, description="", primary_key=None, event_time_col=None):
-        """Create a feature group in the feature store.
-        
-        Args:
-            name (str): Feature group name.
-            version (int, optional): Feature group version. Defaults to 1.
-            description (str, optional): Feature group description. Defaults to "".
-            primary_key (list, optional): List of primary key columns. Defaults to None.
-            event_time_col (str, optional): Event time column name. Defaults to None.
             
-        Returns:
-            object: Feature group object or None if creation fails.
-        """
-        if self.fs is None:
-            logger.error("Not connected to Hopsworks feature store")
-            return None
+            fs = conn.get_feature_store()
+            
+            for city, city_df in df.groupby('city'):
+                fg_name = f"{city.lower().replace(' ', '_')}_aqi_features"
+                
+                try:
+                    fg = fs.get_feature_group(fg_name)
+                except:
+                    fg = fs.create_feature_group(
+                        name=fg_name,
+                        description=f"AQI and weather features for {city}",
+                        primary_key=['timestamp'],
+                        event_time='timestamp'
+                    )
+                
+                fg.insert(city_df)
+                
+                logger.info(f"Stored features for {city} in Hopsworks")
+        except Exception as e:
+            logger.error(f"Error storing in Hopsworks: {e}")
+            self._store_locally(df)
+    
+    def _store_locally(self, df):
+        """Store features locally as CSV files."""
+        os.makedirs('data', exist_ok=True)
+        
+        for city, city_df in df.groupby('city'):
+            file_name = f"data/{city.lower().replace(' ', '_')}_features.csv"
+            
+            if os.path.exists(file_name):
+                existing_df = pd.read_csv(file_name)
+                combined_df = pd.concat([existing_df, city_df]).drop_duplicates(subset=['timestamp'])
+                combined_df.to_csv(file_name, index=False)
+            else:
+                city_df.to_csv(file_name, index=False)
+            
+            logger.info(f"Stored features for {city} locally in {file_name}")
+    
+    def get_training_data(self, feature_view_name, target_cols=None):
+        """Get training data from the feature store."""
+        logger.info(f"Getting training data for {feature_view_name}...")
         
         try:
-            fg = self.fs.get_or_create_feature_group(
-                name=name,
-                version=version,
-                description=description,
-                primary_key=primary_key,
-                event_time=event_time_col,
-                online_enabled=True
-            )
-            logger.info(f"Created/retrieved feature group: {name} (version {version})")
-            return fg
+            if self.can_connect:
+                return self._get_from_hopsworks(feature_view_name, target_cols)
+            else:
+                return self._get_from_local(feature_view_name, target_cols)
         except Exception as e:
-            logger.error(f"Failed to create feature group: {e}")
-            return None
-    
-    def insert_data(self, feature_group, df):
-        """Insert data into a feature group.
-        
-        Args:
-            feature_group: Feature group object.
-            df (pd.DataFrame): DataFrame with data to insert.
-            
-        Returns:
-            bool: True if successful, False otherwise.
-        """
-        if feature_group is None:
-            logger.error("Feature group not provided")
-            return False
-        
-        try:
-            feature_group.insert(df)
-            logger.info(f"Inserted {len(df)} rows into feature group: {feature_group.name}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to insert data: {e}")
-            return False
-    
-    def create_city_feature_groups(self, cities):
-        """Create feature groups for each city.
-        
-        Args:
-            cities (list): List of city dictionaries.
-            
-        Returns:
-            dict: Dictionary mapping city names to feature group objects.
-        """
-        feature_groups = {}
-        
-        for city in cities:
-            city_name = city['name'].replace(' ', '_').lower()
-            fg_name = f"{city_name}_aqi_features"
-            
-            fg = self.create_feature_group(
-                name=fg_name,
-                description=f"AQI features for {city['name']}",
-                primary_key=['timestamp'],
-                event_time_col='timestamp'
-            )
-            
-            if fg is not None:
-                feature_groups[city['name']] = fg
-        
-        return feature_groups
-    
-    def store_features(self, df):
-        """Store features for all cities in the DataFrame.
-        
-        Args:
-            df (pd.DataFrame): DataFrame with features (must have 'city' column).
-            
-        Returns:
-            bool: True if successful, False otherwise.
-        """
-        if 'city' not in df.columns:
-            logger.error("DataFrame must have 'city' column")
-            return False
-        
-        unique_cities = [{'name': city} for city in df['city'].unique()]
-        feature_groups = self.create_city_feature_groups(unique_cities)
-        
-        success = True
-        for city, fg in feature_groups.items():
-            city_df = df[df['city'] == city].copy()
-            if not city_df.empty:
-                success = success and self.insert_data(fg, city_df)
-        
-        return success
-    
-    def get_training_data(self, feature_view_name, version=1, target_cols=None):
-        """Get training data from a feature view.
-        
-        Args:
-            feature_view_name (str): Feature view name.
-            version (int, optional): Feature view version. Defaults to 1.
-            target_cols (list, optional): List of target columns. Defaults to ['pm25', 'pm10'].
-            
-        Returns:
-            tuple: (X, y) DataFrames for features and targets.
-        """
-        if target_cols is None:
-            target_cols = ['pm25', 'pm10']
-        
-        if self.fs is None:
-            logger.error("Not connected to Hopsworks feature store")
+            logger.error(f"Error getting training data: {e}")
             return None, None
-        
+    
+    def _get_from_hopsworks(self, feature_view_name, target_cols):
+        """Get training data from Hopsworks feature store."""
         try:
-            feature_view = self.fs.get_feature_view(
-                name=feature_view_name,
-                version=version
+            import hsfs
+            
+            conn = hsfs.connection(
+                host="app.hopsworks.ai",
+                project=self.project_name,
+                api_key_value=self.api_key
             )
             
-            td = feature_view.get_training_data()
+            fs = conn.get_feature_store()
             
-            X = td.drop(columns=target_cols, errors='ignore')
-            y = td[target_cols]
+            fg = fs.get_feature_group(feature_view_name)
             
+            try:
+                fv = fs.get_feature_view(feature_view_name)
+            except:
+                query = fg.select_all()
+                fv = fs.create_feature_view(
+                    name=feature_view_name,
+                    description=f"Feature view for {feature_view_name}",
+                    query=query
+                )
+            
+            X, y = fv.training_data(target_cols)
+            
+            logger.info(f"Got training data from Hopsworks with {len(X)} rows")
             return X, y
         except Exception as e:
-            logger.error(f"Failed to get training data: {e}")
+            logger.error(f"Error getting from Hopsworks: {e}")
+            return self._get_from_local(feature_view_name, target_cols)
+    
+    def _get_from_local(self, feature_view_name, target_cols):
+        """Get training data from local storage."""
+        file_name = f"data/{feature_view_name.replace('_aqi_features', '')}_features.csv"
+        
+        if not os.path.exists(file_name):
+            logger.error(f"Local file {file_name} not found")
             return None, None
+        
+        df = pd.read_csv(file_name)
+        
+        if target_cols:
+            X = df.drop(target_cols, axis=1)
+            y = df[target_cols]
+        else:
+            X = df
+            y = None
+        
+        logger.info(f"Got training data from local file with {len(X)} rows")
+        return X, y
