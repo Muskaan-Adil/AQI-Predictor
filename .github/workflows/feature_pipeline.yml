@@ -29,4 +29,4 @@ jobs:
           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         run: |
-          python run_feature_pipeline.py
+          python -c "from data_collector import DataCollector; from feature_generator import FeatureGenerator; from feature_store import FeatureStore; dc = DataCollector(); data = dc.collect_all_cities_data(); fg = FeatureGenerator(); features = fg.generate_all_features(data); fs = FeatureStore(); fs.store_features(features)"
