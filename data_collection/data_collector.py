@@ -2,9 +2,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from src.utils.config import Config
-from src.data_collection.aqicn_api import AQICNDataCollector
-from src.data_collection.openweather_api import OpenWeatherDataCollector
+from utils.config import Config
+from data_collection.aqicn_api import AQICNDataCollector
+from data_collection.openweather_api import OpenWeatherDataCollector
 
 logger = logging.getLogger(__name__)
 
