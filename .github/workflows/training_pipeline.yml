@@ -1,73 +1,32 @@
-import pandas as pd
-import numpy as np
-import logging
-from datetime import datetime
-from src.utils.config import Config
-from src.feature_engineering.feature_store import FeatureStore
-from src.models.model_trainer import ModelTrainer
-from src.models.model_registry import ModelRegistry
-from src.evaluation.feature_importance import FeatureImportanceAnalyzer
+name: Daily Training Pipeline
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
-logger = logging.getLogger(__name__)
-
-def run_training_pipeline():
-    """Run the model training pipeline."""
-    logger.info("Starting training pipeline...")
+jobs:
+  run-training-pipeline:
+    runs-on: ubuntu-latest
     
-    feature_store = FeatureStore()
-    model_registry = ModelRegistry()
-    
-    for city in Config.CITIES:
-        city_name = city['name']
-        logger.info(f"Training models for {city_name}...")
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
         
-        for target_col in ['pm25', 'pm10']:
-            logger.info(f"Training models for {city_name} - {target_col}")
-            
-            feature_view_name = f"{city_name.lower().replace(' ', '_')}_aqi_features"
-            X, y = feature_store.get_training_data(feature_view_name, target_cols=[target_col])
-            
-            if X is None or y is None or X.empty or y.empty:
-                logger.warning(f"No training data available for {city_name} - {target_col}")
-                continue
-            
-            model_trainer = ModelTrainer(target_col=target_col)
-            
-            models, metrics, best_model_name = model_trainer.train_models(X, y)
-            
-            if best_model_name:
-                logger.info(f"Best model for {city_name} - {target_col}: {best_model_name}")
-                
-                best_model = models[best_model_name]
-                best_metrics = metrics[best_model_name]
-                
-                analyzer = FeatureImportanceAnalyzer(best_model.model, X=X)
-                analyzer.generate_explainer()
-                analyzer.calculate_shap_values()
-                importance_df = analyzer.get_feature_importance_df()
-                
-                model_registry.save_model(
-                    model=best_model.model,
-                    name=f"{city_name.lower().replace(' ', '_')}_{target_col}",
-                    metrics=best_metrics,
-                    tags={
-                        'city': city_name,
-                        'target': target_col,
-                        'model_type': best_model_name
-                    },
-                    description=f"Best model for {city_name} - {target_col} ({best_model_name})"
-                )
-                
-                logger.info(f"Saved best model for {city_name} - {target_col} to registry")
-            else:
-                logger.warning(f"No best model found for {city_name} - {target_col}")
-    
-    logger.info("Training pipeline completed successfully")
-
-if __name__ == "__main__":
-    run_training_pipeline()
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Run training pipeline
+        env:
+          AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: |
+          python -m src.training_pipeline
