@@ -1,81 +1,71 @@
-import numpy as np
 import pandas as pd
 import logging
 from src.utils.config import Config
-from src.models.model_registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
 class ModelSelector:
-    """Class for selecting the best model for predictions."""
+    """Class for selecting the best model based on performance metrics."""
     
-    def __init__(self):
-        """Initialize the model selector."""
-        self.model_registry = ModelRegistry()
-        self.best_models = {}
-    
-    def get_best_model(self, city, target_col):
-        """Get the best model for a city and target column.
+    def __init__(self, metrics=None, primary_metric='rmse'):
+        """Initialize the model selector.
         
         Args:
-            city (str): City name.
-            target_col (str): Target column.
+            metrics (dict, optional): Dictionary of model metrics. Defaults to None.
+            primary_metric (str, optional): Primary metric for selection ('rmse', 'mae', or 'r2'). Defaults to 'rmse'.
+        """
+        self.metrics = metrics or {}
+        self.primary_metric = primary_metric
+    
+    def select_best_model(self, metrics=None):
+        """Select the best model based on the primary metric.
+        
+        Args:
+            metrics (dict, optional): Dictionary of model metrics. Defaults to None (uses self.metrics).
             
         Returns:
-            object: Best model or None if not found.
+            str: Name of the best model.
         """
-        cache_key = f"{city}_{target_col}"
-        if cache_key in self.best_models:
-            return self.best_models[cache_key]
+        metrics = metrics or self.metrics
         
-        best_model = self.model_registry.get_best_model(city, target_col)
+        if not metrics:
+            logger.warning("No metrics provided for model selection")
+            return None
         
-        if best_model:
-            self.best_models[cache_key] = best_model
+        if self.primary_metric in ['rmse', 'mae']:
+            best_model = min(metrics, key=lambda k: metrics[k][self.primary_metric])
+        elif self.primary_metric == 'r2':
+            best_model = max(metrics, key=lambda k: metrics[k][self.primary_metric])
+        else:
+            logger.warning(f"Unknown metric: {self.primary_metric}. Using RMSE.")
+            best_model = min(metrics, key=lambda k: metrics[k]['rmse'])
         
+        logger.info(f"Selected best model: {best_model} based on {self.primary_metric}")
         return best_model
     
-    def get_best_models_for_all_cities(self, target_col):
-        """Get the best models for all cities for a target column.
+    def get_model_ranking(self, metrics=None, ascending=None):
+        """Get a ranking of models based on the primary metric.
         
         Args:
-            target_col (str): Target column.
+            metrics (dict, optional): Dictionary of model metrics. Defaults to None (uses self.metrics).
+            ascending (bool, optional): Sort order. Defaults to None (True for RMSE/MAE, False for R²).
             
         Returns:
-            dict: Dictionary mapping city names to best models.
+            pd.DataFrame: DataFrame with model rankings.
         """
-        city_models = {}
+        metrics = metrics or self.metrics
         
-        for city in Config.CITIES:
-            city_name = city['name']
-            model = self.get_best_model(city_name, target_col)
-            
-            if model:
-                city_models[city_name] = model
-            else:
-                logger.warning(f"No model found for city: {city_name}, target: {target_col}")
+        if not metrics:
+            logger.warning("No metrics provided for model ranking")
+            return pd.DataFrame()
         
-        return city_models
-    
-    def predict_with_best_model(self, city, target_col, X):
-        """Make predictions using the best model for a city.
+        if ascending is None:
+            ascending = self.primary_metric in ['rmse', 'mae']
         
-        Args:
-            city (str): City name.
-            target_col (str): Target column.
-            X (pd.DataFrame): Features.
-            
-        Returns:
-            np.array: Predictions or None if no model found.
-        """
-        model = self.get_best_model(city, target_col)
+        metrics_df = pd.DataFrame(metrics).T
+        metrics_df.index.name = 'model'
+        metrics_df = metrics_df.reset_index()
         
-        if model is None:
-            logger.error(f"No model found for city: {city}, target: {target_col}")
-            return None
+        metrics_df = metrics_df.sort_values(by=self.primary_metric, ascending=ascending)
         
-        try:
-            return model.predict(X)
-        except Exception as e:
-            logger.error(f"Error making predictions with best model: {e}")
-            return None
+        return metrics_df
