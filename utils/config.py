@@ -1,3 +1,5 @@
+# utils/config.py
+
 import os
 import yaml
 from dotenv import load_dotenv
@@ -16,7 +18,6 @@ class Config:
     AQICN_API_KEY = os.getenv('AQICN_API_KEY')
     OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
     HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
-
     HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'AQI_PRED_10PEARLS')
 
     @classmethod
@@ -39,5 +40,4 @@ class Config:
     FORECAST_DAYS = 3
     DASHBOARD_TITLE = 'Pearls AQI Predictor'
 
-# Set CITIES after class definition
 Config.CITIES = Config.load_cities()
