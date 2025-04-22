@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: '3.x'
+          python-version: '3.8'  # Use Python 3.8 or later to ensure TensorFlow compatibility
 
       - name: Install dependencies
         run: |
@@ -31,10 +31,11 @@ jobs:
           echo "AQICN_API_KEY=${{ secrets.AQICN_API_KEY }}" >> $GITHUB_ENV
           echo "HOPSWORKS_API_KEY=${{ secrets.HOPSWORKS_API_KEY }}" >> $GITHUB_ENV
 
-      # Log the OpenWeather API key
       - name: Log OpenWeather API key
         run: echo "OPENWEATHER_API_KEY=${{ secrets.OPENWEATHER_API_KEY }}"
 
       - name: Run feature pipeline
         run: |
           python features_pipeline.py
+
+
