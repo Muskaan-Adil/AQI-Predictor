@@ -33,4 +33,4 @@ jobs:
 
       - name: Run feature pipeline
         run: |
-          python features_pipeline.py
+          python feature_pipeline.py
