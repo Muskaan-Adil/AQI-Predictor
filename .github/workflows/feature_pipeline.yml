@@ -1,54 +1,42 @@
- - name: Set up Python
-         uses: actions/setup-python@v2
-         with:
-           python-version: '3.9'
-           
-       - name: Install dependencies
-         run: |
-           python -m pip install --upgrade pip
-           pip install -r requirements.txt
-           pip install PyYAML==6.0 python-dotenv requests pandas numpy
-           
-       - name: Create empty __init__.py files
-         run: |
-           mkdir -p data_collection feature_engineering models evaluation utils
-           touch data_collection/__init__.py
-           touch feature_engineering/__init__.py
-           touch models/__init__.py
-           touch evaluation/__init__.py
-           touch utils/__init__.py
-           
-       - name: Run feature pipeline
-         env:
-           AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
-           OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-         run: |
-           python feature_pipeline.py
-         Returns:
-             list: List of city dictionaries with name, lat, lon.
-         """
-         yaml_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'cities.yaml')
-         
-         try:
-             if os.path.exists(yaml_path):
-                 with open(yaml_path, 'r') as file:
-                     data = yaml.safe_load(file)
-                     if data and 'cities' in data and isinstance(data['cities'], list):
-                         return data['cities']
-             return Config.default_cities  # Reference the default_cities as a class variable
-         except Exception as e:
-             print(f"Error loading cities from YAML: {e}")
-             return Config.default_cities  # Reference the default_cities in case of error
-     
-     CITIES = load_cities.__func__()
-     
-     BACKFILL_DAYS = 365
-     
-     FEATURE_STORE_NAME = 'aqi_feature_store'
-     
-     MODEL_REGISTRY_NAME = 'aqi_model_registry'
-     
-     FORECAST_DAYS = 3
-     
-     DASHBOARD_TITLE = 'Pearls AQI Predictor'
+name: Run Feature Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  feature-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install PyYAML==6.0 python-dotenv requests pandas numpy
+
+      - name: Create empty __init__.py files
+        run: |
+          mkdir -p data_collection feature_engineering models evaluation utils
+          touch data_collection/__init__.py
+          touch feature_engineering/__init__.py
+          touch models/__init__.py
+          touch evaluation/__init__.py
+          touch utils/__init__.py
+
+      - name: Run feature pipeline
+        env:
+          AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: |
+          python feature_pipeline.py
