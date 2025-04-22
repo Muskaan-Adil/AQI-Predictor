@@ -7,6 +7,14 @@ load_dotenv()
 class Config:
     """Configuration handler for the application."""
     
+    # Define default cities
+    default_cities = [
+        {'name': 'Karachi', 'lat': 24.8607, 'lon': 67.0011},
+        {'name': 'New York', 'lat': 40.7128, 'lon': -74.0060},
+        {'name': 'London', 'lat': 51.5074, 'lon': -0.1278},
+        # Add more default cities if needed
+    ]
+    
     AQICN_API_KEY = os.getenv('AQICN_API_KEY')
     OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
     HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
@@ -28,10 +36,10 @@ class Config:
                     data = yaml.safe_load(file)
                     if data and 'cities' in data and isinstance(data['cities'], list):
                         return data['cities']
-            return default_cities
+            return Config.default_cities  # Reference the default_cities here
         except Exception as e:
             print(f"Error loading cities from YAML: {e}")
-            return default_cities
+            return Config.default_cities  # Reference the default_cities in case of error
     
     CITIES = load_cities.__func__()
     
