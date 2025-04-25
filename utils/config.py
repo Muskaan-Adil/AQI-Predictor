@@ -18,6 +18,7 @@ class Config:
     HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
     
     HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'AQI_Pred_10Pearls')
+    FEATURE_STORE_NAME = os.getenv('FEATURE_STORE_NAME', 'features')  # <-- add this
 
     @staticmethod
     def load_cities():
