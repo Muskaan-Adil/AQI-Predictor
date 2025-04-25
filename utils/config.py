@@ -1,4 +1,3 @@
-# config.py
 import os
 import yaml
 
@@ -12,13 +11,20 @@ class Config:
         {'name': 'London', 'lat': 51.5074, 'lon': -0.1278},
     ]
     
-    # API keys pulled directly from environment variables (GitHub Secrets)
+    # API keys pulled directly from environment variables
     AQICN_API_KEY = os.getenv('AQICN_API_KEY')
     OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
     HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
     
-    HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'AQI_Pred_10Pearls')
-    FEATURE_STORE_NAME = os.getenv('FEATURE_STORE_NAME', 'features')  # <-- add this
+    # Critical Hopsworks Configuration Fixes:
+    HOPSWORKS_PROJECT_ID = "1219758"  # From your URL: https://c.app.hopsworks.ai/p/1219758/view
+    HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'aqi_prediction')  # Must match exactly
+    FEATURE_STORE_NAME = os.getenv('FEATURE_STORE_NAME', 'air_quality_featurestore')  # Verified in your project
+    
+    # Connection Settings
+    HOPSWORKS_HOST = "c.app.hopsworks.ai"  # Free tier uses 'c.' prefix
+    HOPSWORKS_PORT = 443
+    HOPSWORKS_REGION = None  # Only needed for paid tiers
 
     @staticmethod
     def load_cities():
