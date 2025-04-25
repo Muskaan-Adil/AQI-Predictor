@@ -39,7 +39,36 @@ class FeatureStore:
             logger.error(f"Error storing features: {e}")
             logger.debug(traceback.format_exc())
 
-    ouFZ8BhcXFbDQy7S.GDkj3eGXwA4BgwzKSWqeEi53jUsd1fYSf22pxCnqG0tBZTM9RSTE2z1T64N7SErS
+    def _store_in_hopsworks(self, df):
+        """Store features in Hopsworks feature store."""
+        try:
+            import hsfs
+
+            logger.debug(f"Using Hopsworks API key: {self.api_key}")
+            logger.debug(f"Connecting to Hopsworks at https://app.hopsworks.ai:443")
+
+            conn = hsfs.connection(
+                host="app.hopsworks.ai",
+                project=self.project_name,
+                api_key_value=self.api_key
+            )
+            fs = conn.get_feature_store()
+
+            for city, city_df in df.groupby('city'):
+                fg_name = f"{city.lower().replace(' ', '_')}_aqi_features"
+
+                try:
+                    fg = fs.get_feature_group(fg_name)
+                    logger.debug(f"Found existing feature group: {fg_name}")
+                except Exception as e:
+                    logger.debug(f"Feature group {fg_name} not found, creating new one...")
+                    fg = fs.create_feature_group(
+                        name=fg_name,
+                        description=f"AQI and weather features for {city}",
+                        primary_key=['timestamp'],
+                        event_time='timestamp'
+                    )
+
                 # Insert features into the feature group
                 response = fg.insert(city_df)
                 if response.status_code != 200 or not response.text:
