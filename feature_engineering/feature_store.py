@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import traceback
 from utils.config import Config
+import hsfs
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,6 @@ class FeatureStore:
     def _store_in_hopsworks(self, df):
         """Store features in Hopsworks feature store."""
         try:
-            import hsfs
-
             conn = hsfs.connection(
                 host="app.hopsworks.ai",
                 project=self.project_name,
@@ -54,6 +53,7 @@ class FeatureStore:
             for city, city_df in df.groupby('city'):
                 fg_name = f"{city.lower().replace(' ', '_')}_aqi_features"
 
+                # Try to get the feature group, if it doesn't exist, create it
                 try:
                     fg = fs.get_feature_group(fg_name)
                 except:
@@ -105,8 +105,6 @@ class FeatureStore:
     def _get_from_hopsworks(self, feature_view_name, target_cols):
         """Get training data from Hopsworks feature store."""
         try:
-            import hsfs
-
             conn = hsfs.connection(
                 host="app.hopsworks.ai",
                 project=self.project_name,
