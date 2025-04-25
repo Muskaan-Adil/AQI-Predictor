@@ -35,8 +35,8 @@ jobs:
 
       - name: Run feature pipeline
         env:
-          AQICN_API_KEY: ${{ secrets.AQICN_API_KEY }}
-          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          AQICN_API_KEY: ${{ vars.AQICN_API_KEY }}
+          OPENWEATHER_API_KEY: ${{ vars.OPENWEATHER_API_KEY }}
+          HOPSWORKS_API_KEY: ${{ vars.HOPSWORKS_API_KEY }}
         run: |
           python feature_pipeline.py
