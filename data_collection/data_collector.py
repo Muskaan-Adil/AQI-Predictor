@@ -37,23 +37,18 @@ class DataCollector:
             logger.error(f"Exception while fetching AQI data for {city['name']}: {e}")
             return None
     
-    def collect_weather_data(self, city):
-        """Collect weather data for a specific city."""
-        logger.info(f"Collecting weather data for {city['name']}...")
+   def collect_weather_data(self, city):
+        if not self.weather_api_key:
+            raise ValueError("API Key is missing")
         
-        try:
-            url = f"https://api.openweathermap.org/data/2.5/onecall?lat={city['lat']}&lon={city['lon']}&appid={self.openweather_api_key}&units=metric"
-            response = requests.get(url)
-            data = response.json()
-            
-            if 'current' in data:
-                return data
-            else:
-                logger.error(f"Error fetching weather data for {city['name']}: {data}")
-                return None
-        except Exception as e:
-            logger.error(f"Exception while fetching weather data for {city['name']}: {e}")
+        # Example API request to OpenWeather
+        url = f'http://api.openweathermap.org/data/2.5/weather?q={city}&appid={self.weather_api_key}'
+        response = requests.get(url)
+        
+        if response.status_code == 401:
+            logger.error(f"Invalid API key for city: {city}")
             return None
+        return response.json()
     
     def collect_city_data(self, city):
         """Collect all data for a specific city."""
