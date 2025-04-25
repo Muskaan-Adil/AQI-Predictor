@@ -21,7 +21,7 @@ class OpenWeatherDataCollector:
         
         self.current_weather_url = "https://api.openweathermap.org/data/2.5/weather"
         self.forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
-        self.historical_url = "https://history.openweathermap.org/data/2.5/history/city"  # ✅ Updated URL
+        self.historical_url = "https://history.openweathermap.org/data/2.5/history/city"
     
     def get_current_weather(self, city_name=None, lat=None, lon=None):
         """Get current weather data for a location."""
