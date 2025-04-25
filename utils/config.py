@@ -18,8 +18,8 @@ class Config:
     
     # Critical Hopsworks Configuration Fixes:
     HOPSWORKS_PROJECT_ID = "1219758"  # From your URL: https://c.app.hopsworks.ai/p/1219758/view
-    HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'aqi_prediction')  # Must match exactly
-    FEATURE_STORE_NAME = os.getenv('FEATURE_STORE_NAME', 'air_quality_featurestore')  # Verified in your project
+    HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'AQI_Pred_10Pearls')  # Must match exactly
+    FEATURE_STORE_NAME = os.getenv('FEATURE_STORE_NAME', 'aqi_prediction')  # Verified in your project
     
     # Connection Settings
     HOPSWORKS_HOST = "c.app.hopsworks.ai"  # Free tier uses 'c.' prefix
