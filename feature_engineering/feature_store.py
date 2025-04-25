@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import traceback
 from utils.config import Config
-import hsfs
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +42,11 @@ class FeatureStore:
     def _store_in_hopsworks(self, df):
         """Store features in Hopsworks feature store."""
         try:
+            import hsfs
+
+            logger.debug(f"Using Hopsworks API key: {self.api_key}")
+            logger.debug(f"Connecting to Hopsworks at https://app.hopsworks.ai:443")
+
             conn = hsfs.connection(
                 host="app.hopsworks.ai",
                 project=self.project_name,
@@ -53,10 +57,11 @@ class FeatureStore:
             for city, city_df in df.groupby('city'):
                 fg_name = f"{city.lower().replace(' ', '_')}_aqi_features"
 
-                # Try to get the feature group, if it doesn't exist, create it
                 try:
                     fg = fs.get_feature_group(fg_name)
-                except:
+                    logger.debug(f"Found existing feature group: {fg_name}")
+                except Exception as e:
+                    logger.debug(f"Feature group {fg_name} not found, creating new one...")
                     fg = fs.create_feature_group(
                         name=fg_name,
                         description=f"AQI and weather features for {city}",
@@ -64,7 +69,12 @@ class FeatureStore:
                         event_time='timestamp'
                     )
 
-                fg.insert(city_df)
+                # Insert features into the feature group
+                response = fg.insert(city_df)
+                if response.status_code != 200 or not response.text:
+                    logger.error(f"Received empty response from Hopsworks for feature group {fg_name}")
+                    return
+
                 logger.info(f"Stored features for {city} in Hopsworks")
 
         except Exception as e:
@@ -105,6 +115,8 @@ class FeatureStore:
     def _get_from_hopsworks(self, feature_view_name, target_cols):
         """Get training data from Hopsworks feature store."""
         try:
+            import hsfs
+
             conn = hsfs.connection(
                 host="app.hopsworks.ai",
                 project=self.project_name,
@@ -115,7 +127,8 @@ class FeatureStore:
 
             try:
                 fv = fs.get_feature_view(feature_view_name)
-            except:
+            except Exception as e:
+                logger.debug(f"Feature view {feature_view_name} not found, creating new one...")
                 query = fg.select_all()
                 fv = fs.create_feature_view(
                     name=feature_view_name,
