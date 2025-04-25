@@ -1,3 +1,4 @@
+# config.py
 import os
 import yaml
 
@@ -34,10 +35,4 @@ class Config:
             print(f"Error loading cities from YAML: {e}")
             return Config.default_cities
 
-    CITIES = load_cities.__func__()
-    
-    BACKFILL_DAYS = 365
-    FEATURE_STORE_NAME = 'aqi_feature_store'
-    MODEL_REGISTRY_NAME = 'aqi_model_registry'
-    FORECAST_DAYS = 3
-    DASHBOARD_TITLE = 'Pearls AQI Predictor'
+Config.CITIES = Config.load_cities()
