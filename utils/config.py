@@ -17,7 +17,7 @@ class Config:
     OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
     HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
     
-    HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'AQI_PRED_10PEARLS')
+    HOPSWORKS_PROJECT_NAME = os.getenv('HOPSWORKS_PROJECT_NAME', 'AQI_Pred_10Pearls')
 
     @staticmethod
     def load_cities():
