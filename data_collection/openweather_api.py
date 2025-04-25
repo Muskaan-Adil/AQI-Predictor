@@ -86,39 +86,25 @@ class OpenWeatherDataCollector:
             return None
     
     def get_historical_weather(self, lat, lon, dt=None, days_back=1):
-        """Get historical weather data.
-        
-        Note: OpenWeather's free tier has limitations on historical data.
-        This will get data from the past few days.
-        
-        Args:
-            lat (float): Latitude.
-            lon (float): Longitude.
-            dt (int, optional): Unix timestamp. If None, gets data from days_back. Defaults to None.
-            days_back (int, optional): Days to go back if dt is None. Defaults to 1.
-            
-        Returns:
-            dict: Historical weather data or None if request fails.
-        """
-        if dt is None:
-            dt = int((datetime.now() - timedelta(days=days_back)).timestamp())
-            
-        params = {
-            'lat': lat,
-            'lon': lon,
-            'dt': dt,
-            'appid': self.api_key,
-            'units': 'metric'
-        }
-            
-        try:
-            response = requests.get(self.historical_url, params=params)
-            response.raise_for_status()
-            return response.json()
-                
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request error: {e}")
-            return None
+    """Get historical weather data using Open-Meteo (no API key required)."""
+    date = datetime.now() - timedelta(days=days_back)
+    date_str = date.strftime('%Y-%m-%d')
+    
+    url = (
+        f"https://archive-api.open-meteo.com/v1/archive"
+        f"?latitude={lat}&longitude={lon}"
+        f"&start_date={date_str}&end_date={date_str}"
+        f"&hourly=temperature_2m,relative_humidity_2m,pressure_msl,windspeed_10m"
+    )
+
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Open-Meteo request error: {e}")
+        return None
+
     
     def get_multiple_historical_days(self, lat, lon, days_back=7):
         """Get weather data for multiple past days.
