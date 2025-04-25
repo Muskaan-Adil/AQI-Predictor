@@ -1,92 +1,68 @@
-import os
+import hopsworks  # Use the new SDK instead of hsfs
 import pandas as pd
-import requests
 from datetime import datetime
+import os
 
 class FeatureStore:
     def __init__(self):
-        self.project_numid = "1219758"  # From your URL
         self.api_key = os.getenv('HOPSWORKS_API_KEY')
+        if not self.api_key:
+            raise ValueError("HOPSWORKS_API_KEY not set in environment variables")
         
-        # Bypass HSFS and use direct REST API
-        self.base_url = f"https://c.app.hopsworks.ai:443/hopsworks-api/api/project/{self.project_numid}"
-        self.headers = {
-            "Authorization": f"ApiKey {self.api_key}",
-            "Content-Type": "application/json"
-        }
-        
-        # Verify access
-        self.can_connect = self._verify_access()
-
-    def _verify_access(self):
-        """Direct REST API verification"""
+        # Connect using the new SDK
         try:
-            response = requests.get(
-                f"{self.base_url}/dataset",
-                headers=self.headers,
-                verify=False,
-                timeout=10
-            )
-            return response.status_code == 200
-        except Exception:
-            return False
+            self.project = hopsworks.login(api_key_value=self.api_key)
+            self.fs = self.project.get_feature_store()
+            self.can_connect = True
+        except Exception as e:
+            print(f"Login failed: {str(e)}")
+            self.can_connect = False
 
     def store_features(self, features):
-        """Foolproof storage with direct API calls"""
-        df = pd.DataFrame(features)
-        
-        # 1. Always store locally first
-        self._store_locally(df)
-        
-        # 2. Try Hopsworks if verified
-        if self.can_connect:
-            self._store_via_rest(df)
-
-    def _store_via_rest(self, df):
-        """Direct storage using REST API"""
+        """Store using the new SDK"""
         try:
-            # Convert data
-            df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
-            records = df.to_dict('records')
+            df = pd.DataFrame(features)
             
-            # Create feature group if needed
-            fg_name = "aqi_prediction"
-            self._create_feature_group(fg_name)
+            # Convert timestamp
+            df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
+            
+            # Get or create feature group
+            fg = self.fs.get_or_create_feature_group(
+                name="karachi_aqi_realtime",
+                version=1,
+                primary_key=['timestamp'],
+                description="Karachi AQI Data",
+                online_enabled=False
+            )
             
             # Insert data
-            response = requests.post(
-                f"{self.base_url}/featurestores/{self.project_numid}/featuregroups/{fg_name}/insert",
-                headers=self.headers,
-                json=records,
-                verify=False
-            )
+            fg.insert(df)
+            print("✅ Successfully stored in Hopsworks!")
             
-            if response.status_code == 200:
-                print("Successfully stored via REST API")
-            else:
-                print(f"REST insert failed: {response.text}")
-                
         except Exception as e:
-            print(f"REST storage failed: {str(e)}")
-
-    def _create_feature_group(self, name):
-        """Ensure feature group exists"""
-        try:
-            requests.post(
-                f"{self.base_url}/featurestores/{self.project_numid}/featuregroups",
-                headers=self.headers,
-                json={
-                    "name": name,
-                    "version": 1,
-                    "primaryKey": ["timestamp"],
-                    "eventTime": "timestamp"
-                },
-                verify=False
-            )
-        except Exception:
-            pass
+            print(f"Storage failed: {str(e)}")
+            self._store_locally(df)
 
     def _store_locally(self, df):
-        """Reliable local storage"""
+        """Fallback local storage"""
         os.makedirs('data', exist_ok=True)
-        df.to_csv('data/karachi_aqi.csv', mode='a', header=not os.path.exists('data/karachi_aqi.csv'))
+        df.to_csv('data/karachi_aqi.csv', mode='a', 
+                 header=not os.path.exists('data/karachi_aqi.csv'))
+        print("⚠️ Saved locally as backup")
+
+# Usage example
+if __name__ == "__main__":
+    store = FeatureStore()
+    
+    test_data = [{
+        'city': 'Karachi',
+        'timestamp': datetime.now(),
+        'aqi': 150,
+        'pm25': 120
+    }]
+    
+    if store.can_connect:
+        store.store_features(test_data)
+    else:
+        print("Using local storage only")
+        store._store_locally(pd.DataFrame(test_data))
