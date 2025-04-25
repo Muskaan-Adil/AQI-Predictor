@@ -21,19 +21,10 @@ class OpenWeatherDataCollector:
         
         self.current_weather_url = "https://api.openweathermap.org/data/2.5/weather"
         self.forecast_url = "https://api.openweathermap.org/data/2.5/forecast"
-        self.historical_url = "https://api.openweathermap.org/data/2.5/onecall/timemachine"
+        self.historical_url = "https://history.openweathermap.org/data/2.5/history/city"  # ✅ Updated URL
     
     def get_current_weather(self, city_name=None, lat=None, lon=None):
-        """Get current weather data for a location.
-        
-        Args:
-            city_name (str, optional): Name of the city. Defaults to None.
-            lat (float, optional): Latitude. Defaults to None.
-            lon (float, optional): Longitude. Defaults to None.
-            
-        Returns:
-            dict: Weather data or None if request fails.
-        """
+        """Get current weather data for a location."""
         params = {'appid': self.api_key, 'units': 'metric'}
         
         if city_name:
@@ -49,22 +40,12 @@ class OpenWeatherDataCollector:
             response = requests.get(self.current_weather_url, params=params)
             response.raise_for_status()
             return response.json()
-                
         except requests.exceptions.RequestException as e:
             logger.error(f"Request error: {e}")
             return None
     
     def get_forecast(self, city_name=None, lat=None, lon=None):
-        """Get 5-day weather forecast for a location (3-hour intervals).
-        
-        Args:
-            city_name (str, optional): Name of the city. Defaults to None.
-            lat (float, optional): Latitude. Defaults to None.
-            lon (float, optional): Longitude. Defaults to None.
-            
-        Returns:
-            dict: Forecast data or None if request fails.
-        """
+        """Get 5-day weather forecast for a location (3-hour intervals)."""
         params = {'appid': self.api_key, 'units': 'metric'}
         
         if city_name:
@@ -80,43 +61,32 @@ class OpenWeatherDataCollector:
             response = requests.get(self.forecast_url, params=params)
             response.raise_for_status()
             return response.json()
-                
         except requests.exceptions.RequestException as e:
             logger.error(f"Request error: {e}")
             return None
     
     def get_historical_weather(self, lat, lon, dt=None, days_back=1):
-    """Get historical weather data using Open-Meteo (no API key required)."""
-    date = datetime.now() - timedelta(days=days_back)
-    date_str = date.strftime('%Y-%m-%d')
-    
-    url = (
-        f"https://archive-api.open-meteo.com/v1/archive"
-        f"?latitude={lat}&longitude={lon}"
-        f"&start_date={date_str}&end_date={date_str}"
-        f"&hourly=temperature_2m,relative_humidity_2m,pressure_msl,windspeed_10m"
-    )
+        """Get historical weather data using Open-Meteo (no API key required)."""
+        date = datetime.now() - timedelta(days=days_back)
+        date_str = date.strftime('%Y-%m-%d')
+        
+        url = (
+            f"https://archive-api.open-meteo.com/v1/archive"
+            f"?latitude={lat}&longitude={lon}"
+            f"&start_date={date_str}&end_date={date_str}"
+            f"&hourly=temperature_2m,relative_humidity_2m,pressure_msl,windspeed_10m"
+        )
 
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Open-Meteo request error: {e}")
-        return None
-
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Open-Meteo request error: {e}")
+            return None
     
     def get_multiple_historical_days(self, lat, lon, days_back=7):
-        """Get weather data for multiple past days.
-        
-        Args:
-            lat (float): Latitude.
-            lon (float): Longitude.
-            days_back (int, optional): Number of days to go back. Defaults to 7.
-            
-        Returns:
-            pd.DataFrame: DataFrame with historical weather data.
-        """
+        """Get weather data for multiple past days."""
         historical_data = []
         
         for i in range(days_back):
@@ -124,17 +94,20 @@ class OpenWeatherDataCollector:
             data = self.get_historical_weather(lat, lon, dt)
             
             if data:
-                hourly_data = data.get('hourly', [])
-                
-                for hour in hourly_data:
+                hourly_data = data.get('hourly', {})
+                timestamps = data.get('hourly', {}).get('time', [])
+                temps = data.get('hourly', {}).get('temperature_2m', [])
+                humidity = data.get('hourly', {}).get('relative_humidity_2m', [])
+                pressure = data.get('hourly', {}).get('pressure_msl', [])
+                windspeed = data.get('hourly', {}).get('windspeed_10m', [])
+
+                for idx, timestamp in enumerate(timestamps):
                     hour_data = {
-                        'date': datetime.fromtimestamp(hour.get('dt')).isoformat(),
-                        'temp': hour.get('temp'),
-                        'humidity': hour.get('humidity'),
-                        'pressure': hour.get('pressure'),
-                        'wind_speed': hour.get('wind_speed'),
-                        'wind_direction': hour.get('wind_deg'),
-                        'rain_1h': hour.get('rain', {}).get('1h', 0) if 'rain' in hour else 0,
+                        'datetime': timestamp,
+                        'temp': temps[idx] if idx < len(temps) else None,
+                        'humidity': humidity[idx] if idx < len(humidity) else None,
+                        'pressure': pressure[idx] if idx < len(pressure) else None,
+                        'wind_speed': windspeed[idx] if idx < len(windspeed) else None,
                         'lat': lat,
                         'lon': lon
                     }
@@ -143,14 +116,7 @@ class OpenWeatherDataCollector:
         return pd.DataFrame(historical_data) if historical_data else pd.DataFrame()
     
     def process_weather_data(self, data):
-        """Process raw weather data into structured format.
-        
-        Args:
-            data (dict): Raw data from OpenWeather API.
-            
-        Returns:
-            dict: Processed weather data.
-        """
+        """Process raw weather data into structured format."""
         if not data:
             return {}
         
