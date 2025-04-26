@@ -1,86 +1,54 @@
-import requests
 import logging
 import pandas as pd
-import time
 from datetime import datetime, timedelta
-
-from utils.config import Config
+import requests
 
 logger = logging.getLogger(__name__)
 
 class DataCollector:
-    """Class for collecting historical air quality data from OpenAQ."""
+    """Class for collecting historical air quality data from a CSV file on GitHub."""
 
     def __init__(self):
         """Initialize the data collector."""
-        self.api_key = "7fab7d84ce69679f46201793773c0e4b72a0b1028fbec44fa3828cab946aa1ad"  # Your API Key
-        self.default_parameter = "pm25"
+        self.csv_url = "https://raw.githubusercontent.com/Muskaan-Adil/AQI-Predictor/main/aqi_data.csv"  # Raw GitHub URL
 
-    def get_openaq_aqi_between_dates(self, city, parameter, start_date, end_date, limit=1000):
-        """Collect historical AQI data for a city from OpenAQ."""
-        base_url = "https://api.openaq.org/v3/measurements"
-        all_results = []
-        page = 1
+    def get_data_from_csv(self, start_date, end_date):
+        """Collect AQI data for a city from the CSV file."""
+        try:
+            # Load the CSV directly from GitHub
+            aqi_data = pd.read_csv(self.csv_url)
 
-        while True:
-            params = {
-                "city": city['name'],
-                "parameter": parameter,
-                "limit": limit,
-                "page": page,
-                "date_from": start_date.isoformat(),
-                "date_to": end_date.isoformat(),
-                "sort": "asc"
-            }
+            # Ensure the 'date' column is in datetime format
+            aqi_data['date'] = pd.to_datetime(aqi_data['date'])
 
-            headers = {
-                "X-API-Key": self.api_key  # Use X-API-Key header for authorization
-            }
+            # Filter the data based on the date range
+            filtered_data = aqi_data[(aqi_data['date'] >= start_date) & (aqi_data['date'] <= end_date)]
 
-            response = requests.get(base_url, headers=headers, params=params)
-            if response.status_code != 200:
-                logger.warning(f"OpenAQ request failed for {city['name']} on page {page} with status code {response.status_code}")
-                break
+            if filtered_data.empty:
+                logger.warning(f"No AQI data found for the given date range: {start_date} to {end_date}")
+                return pd.DataFrame()  # Return an empty dataframe
 
-            data = response.json()
-            results = data.get("results", [])
-            if not results:
-                break
-
-            all_results.extend(results)
-            if len(results) < limit:
-                break
-
-            page += 1
-            time.sleep(1)  # Be nice to the API
-
-        if not all_results:
-            logger.warning(f"No historical AQI data found for {city['name']}")
-            return pd.DataFrame()
-
-        df = pd.DataFrame(all_results)
-        return df
+            return filtered_data
+        except Exception as e:
+            logger.error(f"Failed to load AQI data from CSV: {e}")
+            return pd.DataFrame()  # Return an empty dataframe in case of error
 
     def collect_city_data(self, city):
         """Collect all relevant data for a city."""
         logger.info(f"Collecting data for {city['name']}...")
 
-        # Example of collecting AQI and weather data (you may need additional methods here)
-        # Assuming OpenAQ and OpenWeather APIs, you can combine them in a method
-
-        # Collect AQI data
-        start_date = datetime.now() - timedelta(days=30)  # last 30 days for example
+        # Define the date range for data collection (e.g., last 30 days)
         end_date = datetime.now()
+        start_date = end_date - timedelta(days=30)  # Example: last 30 days
 
-        aqi_data = self.get_openaq_aqi_between_dates(city, self.default_parameter, start_date, end_date)
+        # Get the AQI data from CSV
+        aqi_data = self.get_data_from_csv(start_date, end_date)
 
         if aqi_data.empty:
             logger.warning(f"No AQI data available for {city['name']}")
             return None
 
-        # You can also collect weather data here if needed
-        # weather_data = self.collect_weather_data(city)
-
+        # Return the collected data
         return {
             'city': city,
             'aqi': aqi_data,
@@ -100,7 +68,6 @@ class DataCollector:
             city_data = self.collect_city_data(city)
             if city_data:
                 all_data.append(city_data)
-            time.sleep(1)  # Sleep to avoid API rate limiting
 
         logger.info(f"Collected data for {len(all_data)} cities")
         return all_data
