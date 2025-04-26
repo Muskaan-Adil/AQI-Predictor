@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from data_collector import DataCollector
-from feature_store import FeatureStore 
+from feature_store import FeatureStore  # Assuming you have a feature store to save processed data
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 def backfill_data():
     """Backfill historical data for AQI from CSV file stored in a GitHub repository."""
     
-    # URL for your CSV file in the GitHub repository
-    csv_url = "https://raw.githubusercontent.com/your-username/your-repo/main/path/to/aqi_data.csv"  # Update with the raw GitHub URL
+    # Raw URL for your CSV file in the GitHub repository
+    csv_url = "https://raw.githubusercontent.com/Muskaan-Adil/AQI-Predictor/main/aqi_data.csv"  # Raw GitHub URL
 
     # Load CSV directly from GitHub
     try:
