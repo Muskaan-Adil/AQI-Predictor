@@ -1,6 +1,5 @@
 import hopsworks
 import pandas as pd
-import os
 import logging
 from datetime import datetime
 from typing import List, Dict
@@ -12,19 +11,20 @@ class FeatureStore:
     """Optimized Hopsworks feature storage with strict type handling"""
 
     def __init__(self):
-        # Disable Kafka
-        os.environ['ENABLE_HOPSWORKS_KAFKA'] = '0'
-
         self.api_key = Config.HOPSWORKS_API_KEY
         if not self.api_key:
             raise ValueError("HOPSWORKS_API_KEY not set")
 
         try:
-            self.project = hopsworks.login(api_key_value=self.api_key)
+            # Explicitly pass host to login
+            self.project = hopsworks.login(
+                host="c.app.hopsworks.ai",
+                api_key_value=self.api_key
+            )
             self.fs = self.project.get_feature_store()
             logger.info("Connected to Hopsworks Feature Store")
         except Exception as e:
-            logger.error(f"Connection failed: {str(e)}")
+            logger.error(f"Connection to Hopsworks failed: {str(e)}")
             raise
 
     def store_features(self, features: List[Dict]):
@@ -60,14 +60,14 @@ class FeatureStore:
             'o3': ('float64', -1.0),
             'no2': ('float64', -1.0),
             'so2': ('float64', -1.0),
-            'co': ('int64', -1),  # Fix for 'co' schema mismatch
+            'co': ('int64', -1),
             'city': ('str', ''),
-            'weather_main': ('str', ''),  # Fix for weather_main schema mismatch
+            'weather_main': ('str', ''),
             'lat': ('float64', -1.0),
             'lon': ('float64', -1.0)
         }
 
-        # Apply type conversion
+        # Apply type conversions
         for col, (dtype, fill_val) in type_rules.items():
             if col in df.columns:
                 try:
@@ -94,7 +94,7 @@ class FeatureStore:
             )
 
             fg.insert(df)
-            logger.info(f"Successfully stored {len(df)} records")
+            logger.info(f"Successfully stored {len(df)} records to Hopsworks")
 
         except Exception as e:
             logger.error(f"Hopsworks storage failed: {str(e)}")
