@@ -43,21 +43,46 @@ class FeatureStore:
     def __init__(self):
         self.fs = None  # Initialize your connection to Hopsworks or Feature Store here
     
-    def get_training_data(self, feature_view_name: str, target_cols: List[str]) -> Tuple[pd.DataFrame, pd.Series]:
-        """
-        Fetch training data (features X and target y) from a Hopsworks Feature View.
-        """
-        try:
-            # 1) load the feature view (version=1, adjust if you use another)
-            fv = self.fs.get_feature_view(name=feature_view_name, version=1)
+def get_training_data(self,
+                      feature_view_name: str,
+                      target_cols: List[str]
+                     ) -> Tuple[pd.DataFrame, pd.Series]:
+    """
+    Fetch training data (features X and target y) from a Hopsworks Feature View.
+    If the feature view does not exist, create it.
+    """
+    try:
+        # 1) Try to load the feature view (version=1, adjust if you use another)
+        fv = self.fs.get_feature_view(name=feature_view_name, version=1)
+        
+        # If feature view doesn't exist, create one
+        if fv is None:
+            logger.info(f"Feature view '{feature_view_name}' not found. Creating new feature view.")
             
-            # 2) use the SDK's training_data call (returns X, y)
-            X, y = fv.training_data(target_name=target_cols[0])
-            
-            return X, y
-        except Exception as e:
-            logger.error(f"Failed to load training data from '{feature_view_name}': {e}")
-            return None, None
+            # You should have a predefined process for creating a new feature view.
+            # This could be done by registering a new feature view. Assuming you have the necessary data and schema:
+            feature_view = self.fs.create_feature_view(
+                name=feature_view_name,
+                description="Feature view for AQI data",
+                entities=["city"],  # Specify your entity, e.g., "city"
+                features=[  # Define the features based on your dataset
+                    {"name": "pm25", "type": "float"},
+                    {"name": "pm10", "type": "float"},
+                    # Add other features you need here
+                ],
+                time_travel_format="version",  # Example, adjust accordingly
+                time_travel_column="timestamp"  # Example, adjust accordingly
+            )
+            fv = feature_view  # Use the newly created feature view
+        
+        # 2) Use the SDK's training_data call (returns X, y)
+        X, y = fv.training_data(target_name=target_cols[0])
+        
+        return X, y
+    except Exception as e:
+        logger.error(f"Failed to load training data from '{feature_view_name}': {e}")
+        return None, None
+
 
 def run_training_pipeline():
     """Run the model training pipeline."""
