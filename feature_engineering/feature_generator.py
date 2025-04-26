@@ -15,14 +15,12 @@ class FeatureGenerator:
     def extract_features_from_aqi(self, aqi_data):
         """Extract features from AQI data."""
         features = {}
-
         try:
             features['aqi'] = aqi_data.get('aqi')
 
             iaqi = aqi_data.get('iaqi', {})
             features['pm25'] = iaqi.get('pm25', {}).get('v')
             features['pm10'] = iaqi.get('pm10', {}).get('v')
-
             features['o3'] = iaqi.get('o3', {}).get('v')
             features['no2'] = iaqi.get('no2', {}).get('v')
             features['so2'] = iaqi.get('so2', {}).get('v')
@@ -36,7 +34,6 @@ class FeatureGenerator:
     def extract_features_from_weather(self, weather_data):
         """Extract features from weather data."""
         features = {}
-
         try:
             current = weather_data.get('current', {})
             features['temp'] = current.get('temp')
@@ -61,7 +58,6 @@ class FeatureGenerator:
         try:
             city = data['city']
             city_name = city['name']
-
             timestamp = datetime.fromisoformat(data['timestamp'])
 
             aqi_features = self.extract_features_from_aqi(data['aqi'])
@@ -84,7 +80,6 @@ class FeatureGenerator:
     def generate_all_features(self, all_data):
         """Generate features for all cities data."""
         logger.info("Generating features for all cities...")
-
         all_features = []
         for data in all_data:
             features = self.generate_features(data)
@@ -93,3 +88,44 @@ class FeatureGenerator:
 
         logger.info(f"Generated features for {len(all_features)} cities")
         return all_features
+
+    def generate_from_backfill(self, df):
+        """Generate features from a backfilled CSV DataFrame."""
+        logger.info("Generating features from backfilled CSV data...")
+
+        features = []
+        for _, row in df.iterrows():
+            try:
+                timestamp = pd.to_datetime(row.get('timestamp'))
+
+                feature = {
+                    'city': row.get('city', 'Unknown'),
+                    'lat': row.get('lat'),
+                    'lon': row.get('lon'),
+                    'timestamp': timestamp,
+
+                    'aqi': row.get('aqi'),
+                    'pm25': row.get('pm25'),
+                    'pm10': row.get('pm10'),
+                    'o3': row.get('o3'),
+                    'no2': row.get('no2'),
+                    'so2': row.get('so2'),
+                    'co': row.get('co'),
+
+                    'temp': row.get('temp'),
+                    'feels_like': row.get('feels_like'),
+                    'pressure': row.get('pressure'),
+                    'humidity': row.get('humidity'),
+                    'wind_speed': row.get('wind_speed'),
+                    'wind_deg': row.get('wind_deg'),
+                    'clouds': row.get('clouds'),
+                    'weather_id': row.get('weather_id'),
+                    'weather_main': row.get('weather_main')
+                }
+
+                features.append(feature)
+            except Exception as e:
+                logger.warning(f"Error processing CSV row: {e}")
+
+        logger.info(f"Generated {len(features)} features from backfill.")
+        return features
