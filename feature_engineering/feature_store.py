@@ -90,7 +90,29 @@ class FeatureStore:
                 primary_key=['timestamp'],
                 event_time='timestamp',
                 online_enabled=False,
-                statistics_config={"enabled": False}
+                statistics_config={"enabled": False},
+                schema=[
+                    Feature(name="city", type="STRING"),
+                    Feature(name="lat", type="FLOAT"),
+                    Feature(name="lon", type="FLOAT"),
+                    Feature(name="timestamp", type="BIGINT"),
+                    Feature(name="aqi", type="INT"),
+                    Feature(name="pm25", type="INT"),
+                    Feature(name="pm10", type="INT"),
+                    Feature(name="o3", type="FLOAT"),
+                    Feature(name="no2", type="FLOAT"),
+                    Feature(name="so2", type="FLOAT"),
+                    Feature(name="co", type="INT"),
+                    Feature(name="temp", type="INT"),
+                    Feature(name="feels_like", type="INT"),
+                    Feature(name="pressure", type="INT"),
+                    Feature(name="humidity", type="INT"),
+                    Feature(name="wind_speed", type="INT"),
+                    Feature(name="wind_deg", type="INT"),
+                    Feature(name="clouds", type="INT"),
+                    Feature(name="weather_id", type="INT"),
+                    Feature(name="weather_main", type="STRING"), 
+                ]
             )
 
             fg.insert(df)
