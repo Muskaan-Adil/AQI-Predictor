@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 import logging
 from datetime import datetime
-from src.utils.config import Config
+from utils.config import Config
 from src.models.linear_model import LinearModel
 from src.models.forest_model import ForestModel
 from src.models.boosting_model import BoostingModel
