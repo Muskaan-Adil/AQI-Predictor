@@ -83,46 +83,46 @@ class FeatureStore:
         return df
 
     def _store_to_hopsworks(self, df: pd.DataFrame):
-    """Strict schema validation with feature group creation"""
-    try:
-        fg = self.fs.get_or_create_feature_group(
-            name="karachi_aqi_realtime",
-            version=1,
-            primary_key=['timestamp'],
-            event_time='timestamp',
-            online_enabled=False,
-            statistics_config={"enabled": False},
-            features=[   # ✅ Replace schema with features
-                Feature(name="city", type="STRING"),
-                Feature(name="lat", type="FLOAT"),
-                Feature(name="lon", type="FLOAT"),
-                Feature(name="timestamp", type="BIGINT"),
-                Feature(name="aqi", type="INT"),
-                Feature(name="pm25", type="INT"),
-                Feature(name="pm10", type="INT"),
-                Feature(name="o3", type="FLOAT"),
-                Feature(name="no2", type="FLOAT"),
-                Feature(name="so2", type="FLOAT"),
-                Feature(name="co", type="INT"),
-                Feature(name="temp", type="INT"),
-                Feature(name="feels_like", type="INT"),
-                Feature(name="pressure", type="INT"),
-                Feature(name="humidity", type="INT"),
-                Feature(name="wind_speed", type="INT"),
-                Feature(name="wind_deg", type="INT"),
-                Feature(name="clouds", type="INT"),
-                Feature(name="weather_id", type="INT"),
-                Feature(name="weather_main", type="STRING"),
-            ],
-            description="Real-time AQI data for Karachi"  # ✅ good to add description
-        )
+        """Strict schema validation with feature group creation"""
+        try:
+            fg = self.fs.get_or_create_feature_group(
+                name="karachi_aqi_realtime",
+                version=1,
+                primary_key=['timestamp'],
+                event_time='timestamp',
+                online_enabled=False,
+                statistics_config={"enabled": False},
+                features=[  # ✅ Correct, should use features
+                    Feature(name="city", type="STRING"),
+                    Feature(name="lat", type="FLOAT"),
+                    Feature(name="lon", type="FLOAT"),
+                    Feature(name="timestamp", type="BIGINT"),
+                    Feature(name="aqi", type="INT"),
+                    Feature(name="pm25", type="INT"),
+                    Feature(name="pm10", type="INT"),
+                    Feature(name="o3", type="FLOAT"),
+                    Feature(name="no2", type="FLOAT"),
+                    Feature(name="so2", type="FLOAT"),
+                    Feature(name="co", type="INT"),
+                    Feature(name="temp", type="INT"),
+                    Feature(name="feels_like", type="INT"),
+                    Feature(name="pressure", type="INT"),
+                    Feature(name="humidity", type="INT"),
+                    Feature(name="wind_speed", type="INT"),
+                    Feature(name="wind_deg", type="INT"),
+                    Feature(name="clouds", type="INT"),
+                    Feature(name="weather_id", type="INT"),
+                    Feature(name="weather_main", type="STRING"),
+                ],
+                description="Real-time AQI data for Karachi"  # ✅ Added description
+            )
 
-        fg.insert(df)
-        logger.info(f"Successfully stored {len(df)} records to Hopsworks")
+            fg.insert(df)
+            logger.info(f"Successfully stored {len(df)} records to Hopsworks")
 
-    except Exception as e:
-        logger.error(f"Hopsworks storage failed: {str(e)}")
-        raise
+        except Exception as e:
+            logger.error(f"Hopsworks storage failed: {str(e)}")
+            raise
 
 if __name__ == "__main__":
     test_data = [{
