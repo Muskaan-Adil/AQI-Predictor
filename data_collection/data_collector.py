@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 
 from utils.config import Config
 
-# Initialize logger
 logger = logging.getLogger(__name__)
 
 class DataCollector:
@@ -14,9 +13,8 @@ class DataCollector:
 
     def __init__(self):
         """Initialize the data collector."""
+        self.api_key = "7fab7d84ce69679f46201793773c0e4b72a0b1028fbec44fa3828cab946aa1ad"  # Your API Key
         self.default_parameter = "pm25"
-        # API key for OpenAQ
-        self.api_key = "7fab7d84ce69679f46201793773c0e4b72a0b1028fbec44fa3828cab946aa1ad"
 
     def get_openaq_aqi_between_dates(self, city, parameter, start_date, end_date, limit=1000):
         """Collect historical AQI data for a city from OpenAQ."""
@@ -25,11 +23,6 @@ class DataCollector:
         page = 1
 
         while True:
-            # Include the API key in the headers
-            headers = {
-                "Authorization": f"Bearer {self.api_key}"
-            }
-
             params = {
                 "city": city['name'],
                 "parameter": parameter,
@@ -38,6 +31,10 @@ class DataCollector:
                 "date_from": start_date.isoformat(),
                 "date_to": end_date.isoformat(),
                 "sort": "asc"
+            }
+
+            headers = {
+                "X-API-Key": self.api_key  # Use X-API-Key header for authorization
             }
 
             response = requests.get(base_url, headers=headers, params=params)
@@ -67,6 +64,9 @@ class DataCollector:
     def collect_city_data(self, city):
         """Collect all relevant data for a city."""
         logger.info(f"Collecting data for {city['name']}...")
+
+        # Example of collecting AQI and weather data (you may need additional methods here)
+        # Assuming OpenAQ and OpenWeather APIs, you can combine them in a method
 
         # Collect AQI data
         start_date = datetime.now() - timedelta(days=30)  # last 30 days for example
