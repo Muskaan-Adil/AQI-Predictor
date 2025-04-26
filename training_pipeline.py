@@ -40,41 +40,51 @@ def load_cities() -> List[dict]:
         logger.error(f"Error loading cities from YAML: {e}")
         return default_cities
 
-    def get_training_data(feature_store: FeatureStore,
-                          feature_view_name: str,
-                          target_cols: List[str]
-                         ) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
-        try:
-            # Get the feature view
-            feature_view = feature_store.get_feature_view(
-                name=feature_view_name,
-                version=1
-            )
-            
-            if feature_view is None:
-                logger.error(f"Feature view '{feature_view_name}' not found")
-                return None, None
-            
-            # Get training data (returns a tuple)
-            training_data = feature_view.get_training_data(
-                training_dataset_version=1
-            )
-            
-            if training_data is None:
-                logger.error(f"No training data available for feature view '{feature_view_name}'")
-                return None, None
-            
-            # Split tuple
-            X = training_data[0]   # Features
-            y = training_data[1][target_cols[0]]  # First target column
-            
-            logger.info(f"Retrieved training data with {X.shape[0]} samples and {X.shape[1]} features")
-            return X, y
+def get_training_data(feature_store: FeatureStore,
+                     feature_view_name: str,
+                     target_cols: List[str]
+                    ) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
+    """
+    Fetch training data (features X and target y) from a Hopsworks Feature View.
+    
+    Args:
+        feature_store: Initialized FeatureStore instance
+        feature_view_name: Name of the feature view
+        target_cols: List of target column names
         
-        except Exception as e:
-            logger.error(f"Failed to get training data from '{feature_view_name}': {e}")
+    Returns:
+        Tuple of (features DataFrame, target Series)
+    """
+    try:
+        # Get the feature view
+        feature_view = feature_store.get_feature_view(
+            name=feature_view_name,
+            version=1
+        )
+        
+        if feature_view is None:
+            logger.error(f"Feature view '{feature_view_name}' not found")
             return None, None
-
+        
+        # Get training data (returns a tuple)
+        training_data = feature_view.get_training_data(
+            training_dataset_version=1
+        )
+        
+        if training_data is None:
+            logger.error(f"No training data available for feature view '{feature_view_name}'")
+            return None, None
+        
+        # Split tuple
+        X = training_data[0]   # Features
+        y = training_data[1][target_cols[0]]  # First target column
+        
+        logger.info(f"Retrieved training data with {X.shape[0]} samples and {X.shape[1]} features")
+        return X, y
+    
+    except Exception as e:
+        logger.error(f"Failed to get training data from '{feature_view_name}': {e}")
+        return None, None
 
 def run_training_pipeline() -> None:
     """Run the model training pipeline."""
