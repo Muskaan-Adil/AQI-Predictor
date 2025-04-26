@@ -21,30 +21,27 @@ class DataCollector:
     def get_aqicn_data(self, city):
         """Collect real-time AQI data for a city from AQICN API."""
         base_url = f"https://api.waqi.info/feed/{city['name']}/?token={self.api_key_aqicn}"
-        response = requests.get(base_url)
-        
-        if response.status_code == 200:
+        try:
+            response = requests.get(base_url)
+            response.raise_for_status()
             data = response.json()
             if data["status"] == "ok":
                 return data["data"]
             else:
                 logger.warning(f"AQICN request failed for {city['name']}: {data.get('data', {}).get('error', {}).get('message', '')}")
-        else:
-            logger.warning(f"AQICN request failed for {city['name']} with status code {response.status_code}")
-        
+        except requests.RequestException as e:
+            logger.warning(f"AQICN request failed for {city['name']} with error: {e}")
         return None
 
     def get_openweather_data(self, city):
         """Collect real-time weather data for a city from OpenWeather API."""
         base_url = f"http://api.openweathermap.org/data/2.5/weather?q={city['name']}&appid={self.api_key_openweather}&units=metric"
-        response = requests.get(base_url)
-        
-        if response.status_code == 200:
-            data = response.json()
-            return data
-        else:
-            logger.warning(f"OpenWeather request failed for {city['name']} with status code {response.status_code}")
-        
+        try:
+            response = requests.get(base_url)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            logger.warning(f"OpenWeather request failed for {city['name']} with error: {e}")
         return None
 
     def backfill_with_csv(self, csv_path="aqi_data.csv"):
@@ -72,10 +69,13 @@ class DataCollector:
         # Backfill data from CSV
         backfilled_data = self.backfill_with_csv()
 
-        return {
+        # Standardize and combine the collected data
+        combined_data = {
             'city': city,
             'aqi': aqi_data,
             'weather': weather_data,
-            'backfilled': backfilled_data,
+            'backfilled': backfilled_data.to_dict(orient='records') if not backfilled_data.empty else [],
             'timestamp': datetime.now().isoformat()
         }
+
+        return combined_data
