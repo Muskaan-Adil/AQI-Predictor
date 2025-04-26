@@ -49,6 +49,18 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
         X = X.apply(pd.to_numeric, errors='coerce')
         y = pd.to_numeric(y, errors='coerce')
         
+        # Identify and drop completely empty columns
+        empty_cols = X.columns[X.isna().all()]
+        if len(empty_cols) > 0:
+            logger.warning(f"Dropping empty columns: {list(empty_cols)}")
+            X = X.drop(columns=empty_cols)
+        
+        # Identify and drop non-numeric columns that couldn't be converted
+        non_numeric_cols = X.select_dtypes(exclude=[np.number]).columns
+        if len(non_numeric_cols) > 0:
+            logger.warning(f"Dropping non-numeric columns: {list(non_numeric_cols)}")
+            X = X.drop(columns=non_numeric_cols)
+        
         # Create preprocessing pipeline
         preprocessor = Pipeline([
             ('imputer', SimpleImputer(strategy='mean')),
@@ -62,6 +74,7 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
         # Handle target variable
         y = y.fillna(y.mean())
         
+        logger.info(f"Preprocessed data shape: {X.shape}")
         return X, y
     except Exception as e:
         logger.error(f"Error in data preprocessing: {e}")
@@ -98,6 +111,8 @@ def get_training_data(feature_store: FeatureStore,
         X = training_data[0]   # Features
         y = training_data[1][target_cols[0]]  # First target column
         
+        logger.info(f"Raw data shape before preprocessing: {X.shape}")
+        
         # Preprocess data
         X, y = preprocess_data(X, y)
         
@@ -111,19 +126,6 @@ def get_training_data(feature_store: FeatureStore,
     except Exception as e:
         logger.error(f"Failed to get training data from '{feature_view_name}': {e}")
         return None, None
-
-def clean_metrics(metrics: dict) -> dict:
-    """Replace infinite values and handle edge cases for model registry."""
-    cleaned = {}
-    for k, v in metrics.items():
-        if isinstance(v, (int, float)):
-            if np.isinf(v) or np.isnan(v):
-                cleaned[k] = 1e6 if v > 0 else -1e6
-            else:
-                cleaned[k] = float(v)
-        else:
-            cleaned[k] = str(v)
-    return cleaned
 
 def run_training_pipeline() -> None:
     """Run the model training pipeline."""
@@ -164,7 +166,7 @@ def run_training_pipeline() -> None:
                 
                 # Save best model
                 best_model = models[best_model_name]
-                best_metrics = clean_metrics(metrics[best_model_name])
+                best_metrics = metrics[best_model_name]
                 
                 # Feature importance analysis (skip for linear models)
                 if best_model_name in ['random_forest', 'gradient_boosting']:
@@ -178,7 +180,7 @@ def run_training_pipeline() -> None:
                 
                 # Save to model registry
                 try:
-                    model_version = model_registry.save_model(
+                    model_registry.save_model(
                         model=best_model.model,
                         name=f"{city_name.lower().replace(' ', '_')}_{target_col}",
                         metrics=best_metrics,
@@ -189,7 +191,7 @@ def run_training_pipeline() -> None:
                         },
                         description=f"Best model for {city_name} - {target_col} ({best_model_name})"
                     )
-                    logger.info(f"Saved model version {model_version} for {city_name} - {target_col}")
+                    logger.info(f"Saved best model for {city_name} - {target_col} to registry")
                 except Exception as e:
                     logger.error(f"Failed to save model to registry: {e}")
         
