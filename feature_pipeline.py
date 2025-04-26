@@ -13,7 +13,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 def load_cities():
     """Load cities from YAML configuration file."""
     yaml_path = 'cities.yaml'
@@ -47,36 +46,41 @@ def run_feature_pipeline():
 
         # Step 2: Collect Data
         logger.info("Collecting data from APIs...")
+
+        # Instantiate the data collector
         data_collector = DataCollector()
 
-        # Debugging line to check the available methods of data_collector
-        logger.info(f"Available methods in DataCollector: {dir(data_collector)}")
+        # Load real-time data from APIs
+        logger.info("Collecting real-time data from OpenAQ API...")
+        real_time_data = data_collector.collect_all_cities_data(cities=cities)
+        
+        # Backfill data from CSV (using the backfill function in DataCollector)
+        logger.info("Backfilling data from CSV file...")
+        backfilled_data = data_collector.backfill_with_csv()
 
-        # Check if the method is available in DataCollector class
-        if hasattr(data_collector, 'collect_all_cities_data'):
-            logger.info("Calling collect_all_cities_data method...")
-            data = data_collector.collect_all_cities_data(cities=cities)
-        else:
-            logger.error("DataCollector does not have the 'collect_all_cities_data' method.")
+        # Combine real-time data and backfilled data
+        logger.info("Merging real-time data with backfilled data...")
+        combined_data = data_collector.merge_data(real_time_data, backfilled_data)
+
+        if not combined_data:
+            logger.error("No valid data available after merging real-time and backfilled data")
             return
-        
-        if not data:
-            logger.error("No data collected from APIs")
-            return
-        
+
+        logger.info(f"Merged data contains {len(combined_data)} records.")
+
         # Step 3: Feature Generation
         logger.info("Generating features...")
         feature_generator = FeatureGenerator()
-        features = feature_generator.generate_all_features(data)
+        features = feature_generator.generate_all_features(combined_data)
 
         if not features:
             logger.error("Feature generation failed")
             return
 
-        logger.info(f"Generated features: {features}")  # Optional: for debugging
+        logger.info(f"Generated features: {features[:5]}")  # Log only a few features for inspection
 
         # Step 4: Store Features in Hopsworks
-        logger.info("Storing features...")
+        logger.info("Storing features in Hopsworks...")
         feature_store = FeatureStore()
         feature_store.store_features(features)
 
@@ -86,7 +90,6 @@ def run_feature_pipeline():
         logger.error(f"Error in feature pipeline: {e}")
         import traceback
         logger.error(traceback.format_exc())
-
 
 if __name__ == "__main__":
     run_feature_pipeline()
