@@ -37,7 +37,24 @@ def load_cities():
     except Exception as e:
         logger.error(f"Error loading cities from YAML: {e}")
         return default_cities
-
+        
+  def get_training_data(self, 
+                          feature_view_name: str, 
+                          target_cols: List[str]
+                         ) -> Tuple[pd.DataFrame, pd.Series]:
+        """
+        Fetch training data (features X and target y) from a Hopsworks Feature View.
+        """
+        try:
+            # 1) load the feature view (version=1, adjust if you use another)
+            fv = self.fs.get_feature_view(name=feature_view_name, version=1)
+            
+            # 2) use the SDK's training_data call
+            #    (this returns X, y)
+            X, y = fv.training_data(target_name=target_cols[0])
+            
+            return X, y
+            
 def run_training_pipeline():
     """Run the model training pipeline."""
     logger.info("Starting training pipeline...")
