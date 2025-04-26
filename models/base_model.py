@@ -16,9 +16,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from feature_engineering.feature_store import FeatureStore
-from models.model_trainer import ModelTrainer
-from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
+
+def load_model_trainer():
+    """Lazy import of ModelTrainer to avoid circular imports."""
+    from models.model_trainer import ModelTrainer
+    return ModelTrainer
 
 def load_cities() -> List[dict]:
     """Load cities from YAML configuration file."""
@@ -56,10 +59,8 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
             X = X.drop(columns=empty_cols)
         
         # Create preprocessing pipeline
-        preprocessor = Pipeline([
-            ('imputer', SimpleImputer(strategy='mean')),
-            ('scaler', StandardScaler())
-        ])
+        preprocessor = Pipeline([('imputer', SimpleImputer(strategy='mean')),
+                                 ('scaler', StandardScaler())])
         
         # Apply preprocessing
         X_processed = preprocessor.fit_transform(X)
@@ -122,7 +123,7 @@ def get_training_data(feature_store: FeatureStore,
         return None, None
 
 def clean_metrics(metrics: dict) -> dict:
-    """Replace infinite values and handle edge cases for model registry."""
+    """Replace infinite values and handle edge cases for model registry.""" 
     cleaned = {}
     for k, v in metrics.items():
         if isinstance(v, (int, float)):
@@ -137,13 +138,12 @@ def clean_metrics(metrics: dict) -> dict:
 def run_training_pipeline() -> None:
     """Run the model training pipeline."""
     logger.info("Starting training pipeline...")
-    
+
     try:
         cities = load_cities()
         
         # Initialize connections
         feature_store = FeatureStore()
-        model_registry = ModelRegistry()
         
         for city in cities:
             city_name = city['name']
@@ -161,7 +161,8 @@ def run_training_pipeline() -> None:
                     logger.warning(f"No training data available for {city_name} - {target_col}")
                     continue
                 
-                # Train models
+                # Lazy import ModelTrainer to avoid circular import
+                ModelTrainer = load_model_trainer()
                 model_trainer = ModelTrainer(target_col=target_col)
                 models, metrics, best_model_name = model_trainer.train_models(X, y)
                 
