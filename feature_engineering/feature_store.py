@@ -38,54 +38,55 @@ class FeatureStore:
             raise
 
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
-        """Convert data types to match Hopsworks schema exactly"""
-        df = pd.DataFrame(features)
+    """Convert data types to match Hopsworks schema exactly"""
+    df = pd.DataFrame(features)
+    
+    # Convert timestamp to milliseconds (bigint)
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
+    
+    # Type conversion mapping
+    type_rules = {
+        # Integer columns
+        'aqi': ('int64', -1),
+        'pm25': ('int64', -1),
+        'pm10': ('int64', -1),
+        'temp': ('int64', -1),
+        'feels_like': ('int64', -1),
+        'pressure': ('int64', -1),
+        'humidity': ('int64', -1),
+        'wind_speed': ('int64', -1),
+        'wind_deg': ('int64', -1),
+        'clouds': ('int64', -1),
+        'weather_id': ('int64', -1),
         
-        # Convert timestamp to milliseconds (bigint)
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
+        # Float columns
+        'o3': ('float64', -1.0),
+        'no2': ('float64', -1.0),
+        'so2': ('float64', -1.0),
+        'co': ('int64', -1),  # Convert 'co' to int64 (bigint)
         
-        # Type conversion mapping
-        type_rules = {
-            # Integer columns
-            'aqi': ('int64', -1),
-            'pm25': ('int64', -1),
-            'pm10': ('int64', -1),
-            'temp': ('int64', -1),
-            'feels_like': ('int64', -1),
-            'pressure': ('int64', -1),
-            'humidity': ('int64', -1),
-            'wind_speed': ('int64', -1),
-            'wind_deg': ('int64', -1),
-            'clouds': ('int64', -1),
-            'weather_id': ('int64', -1),
-            
-            # Float columns
-            'o3': ('float64', -1.0),
-            'no2': ('float64', -1.0),
-            'so2': ('float64', -1.0),
-            'co': ('float64', -1.0),
-            
-            # String columns
-            'city': ('str', ''),
-            'weather_main': ('str', ''),
-            'lat': ('float64', -1.0),
-            'lon': ('float64', -1.0)
-        }
-        
-        # Apply type conversion
-        for col, (dtype, fill_val) in type_rules.items():
-            if col in df.columns:
-                try:
-                    if dtype == 'str':
-                        df[col] = df[col].fillna(fill_val).astype(dtype)
-                    else:
-                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(fill_val).astype(dtype)
-                except Exception as e:
-                    logger.warning(f"Type conversion failed for {col}: {str(e)}")
-                    df[col] = fill_val
-        
-        return df
+        # String columns
+        'city': ('str', ''),
+        'weather_main': ('int64', -1),  # Convert 'weather_main' to int64 (bigint)
+        'lat': ('float64', -1.0),
+        'lon': ('float64', -1.0)
+    }
+    
+    # Apply type conversion
+    for col, (dtype, fill_val) in type_rules.items():
+        if col in df.columns:
+            try:
+                if dtype == 'str':
+                    df[col] = df[col].fillna(fill_val).astype(dtype)
+                else:
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(fill_val).astype(dtype)
+            except Exception as e:
+                logger.warning(f"Type conversion failed for {col}: {str(e)}")
+                df[col] = fill_val
+    
+    return df
+
 
     def _store_to_hopsworks(self, df: pd.DataFrame):
         """Strict schema validation with feature group creation"""
