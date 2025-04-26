@@ -6,6 +6,7 @@ on:
       - main
   schedule:
     - cron: '0 * * * *'  # Runs at the 0th minute of every hour
+  workflow_dispatch:  # Add this for manual triggering
 
 jobs:
   feature-pipeline:
