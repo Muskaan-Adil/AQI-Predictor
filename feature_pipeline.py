@@ -13,7 +13,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 def load_cities():
     """Load cities from YAML configuration file."""
     yaml_path = 'cities.yaml'
@@ -30,12 +29,12 @@ def load_cities():
                 if data and 'cities' in data and isinstance(data['cities'], list):
                     logger.info(f"Loaded {len(data['cities'])} cities from YAML")
                     return data['cities']
+        # If YAML is not found or invalid, fallback to default cities
         logger.warning("Cities YAML not found, using default cities")
         return default_cities
     except Exception as e:
         logger.error(f"Error loading cities from YAML: {e}")
         return default_cities
-
 
 def run_feature_pipeline():
     """Run the full feature engineering pipeline."""
@@ -44,6 +43,10 @@ def run_feature_pipeline():
     try:
         # Step 1: Load Cities
         cities = load_cities()
+
+        if not cities:
+            logger.error("No cities to process.")
+            return
 
         # Step 2: Collect Data
         logger.info("Collecting data from APIs...")
@@ -63,10 +66,10 @@ def run_feature_pipeline():
             logger.error("Feature generation failed")
             return
 
-        logger.info(f"Generated features: {features}")  # Optional: for debugging
+        logger.info(f"Generated features for {len(features)} records.")  # Logging number of records generated
 
         # Step 4: Store Features in Hopsworks
-        logger.info("Storing features...")
+        logger.info("Storing features in Hopsworks...")
         feature_store = FeatureStore()
         feature_store.store_features(features)
 
@@ -76,7 +79,6 @@ def run_feature_pipeline():
         logger.error(f"Error in feature pipeline: {e}")
         import traceback
         logger.error(traceback.format_exc())
-
 
 if __name__ == "__main__":
     run_feature_pipeline()
