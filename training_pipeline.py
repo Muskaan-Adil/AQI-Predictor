@@ -55,12 +55,6 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
             logger.warning(f"Dropping empty columns: {list(empty_cols)}")
             X = X.drop(columns=empty_cols)
         
-        # Identify and drop non-numeric columns that couldn't be converted
-        non_numeric_cols = X.select_dtypes(exclude=[np.number]).columns
-        if len(non_numeric_cols) > 0:
-            logger.warning(f"Dropping non-numeric columns: {list(non_numeric_cols)}")
-            X = X.drop(columns=non_numeric_cols)
-        
         # Create preprocessing pipeline
         preprocessor = Pipeline([
             ('imputer', SimpleImputer(strategy='mean')),
@@ -127,6 +121,19 @@ def get_training_data(feature_store: FeatureStore,
         logger.error(f"Failed to get training data from '{feature_view_name}': {e}")
         return None, None
 
+def clean_metrics(metrics: dict) -> dict:
+    """Replace infinite values and handle edge cases for model registry."""
+    cleaned = {}
+    for k, v in metrics.items():
+        if isinstance(v, (int, float)):
+            if np.isinf(v) or np.isnan(v):
+                cleaned[k] = 1e6 if v > 0 else -1e6
+            else:
+                cleaned[k] = float(v)
+        else:
+            cleaned[k] = str(v)
+    return cleaned
+
 def run_training_pipeline() -> None:
     """Run the model training pipeline."""
     logger.info("Starting training pipeline...")
@@ -166,7 +173,7 @@ def run_training_pipeline() -> None:
                 
                 # Save best model
                 best_model = models[best_model_name]
-                best_metrics = metrics[best_model_name]
+                best_metrics = clean_metrics(metrics[best_model_name])
                 
                 # Feature importance analysis (skip for linear models)
                 if best_model_name in ['random_forest', 'gradient_boosting']:
@@ -178,9 +185,9 @@ def run_training_pipeline() -> None:
                     except Exception as e:
                         logger.error(f"Error in feature importance analysis: {e}")
                 
-                # Save to model registry
+                # Save to model registry with proper tag handling
                 try:
-                    model_registry.save_model(
+                    model_version = model_registry.save_model(
                         model=best_model.model,
                         name=f"{city_name.lower().replace(' ', '_')}_{target_col}",
                         metrics=best_metrics,
@@ -191,7 +198,7 @@ def run_training_pipeline() -> None:
                         },
                         description=f"Best model for {city_name} - {target_col} ({best_model_name})"
                     )
-                    logger.info(f"Saved best model for {city_name} - {target_col} to registry")
+                    logger.info(f"Saved model version {model_version} for {city_name} - {target_col}")
                 except Exception as e:
                     logger.error(f"Failed to save model to registry: {e}")
         
