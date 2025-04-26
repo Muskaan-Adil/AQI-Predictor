@@ -2,7 +2,7 @@ import requests
 import logging
 import pandas as pd
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from utils.config import Config
 
