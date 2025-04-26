@@ -1,89 +1,57 @@
 import requests
 import logging
-import json
+import pandas as pd
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
 
 class DataCollector:
-    """Class for collecting air quality and weather data from APIs."""
-    
+    """Class for collecting historical air quality data from OpenAQ."""
+
     def __init__(self):
         """Initialize the data collector."""
-        self.aqicn_api_key = Config.AQICN_API_KEY
-        self.openweather_api_key = Config.OPENWEATHER_API_KEY
-        
-        if not self.aqicn_api_key or not self.openweather_api_key:
-            logger.warning("API keys are not set. Set AQICN_API_KEY and OPENWEATHER_API_KEY environment variables.")
-    
-    def collect_aqi_data(self, city):
-        """Collect air quality data for a specific city."""
-        logger.info(f"Collecting AQI data for {city['name']}...")
-        
-        try:
-            url = f"https://api.waqi.info/feed/geo:{city['lat']};{city['lon']}/?token={self.aqicn_api_key}"
-            response = requests.get(url)
-            data = response.json()
-            
-            if data['status'] == 'ok':
-                return data['data']
-            else:
-                logger.error(f"Error fetching AQI data for {city['name']}: {data}")
-                return None
-        except Exception as e:
-            logger.error(f"Exception while fetching AQI data for {city['name']}: {e}")
-            return None
-    
-    def collect_weather_data(self, city):
-        """Collect weather data for a specific city."""
-        if not self.openweather_api_key:
-            raise ValueError("API Key is missing")
-        
-        url = f'http://api.openweathermap.org/data/2.5/weather?q={city["name"]}&appid={self.openweather_api_key}&units=metric'
-        try:
-            response = requests.get(url)
-            if response.status_code == 401:
-                logger.error(f"Invalid API key for city: {city['name']}")
-                return None
-            return response.json()
-        except Exception as e:
-            logger.error(f"Exception while fetching weather data for {city['name']}: {e}")
-            return None
-    
-    def collect_city_data(self, city):
-        """Collect all data for a specific city."""
-        logger.info(f"Collecting data for {city['name']}...")
-        
-        aqi_data = self.collect_aqi_data(city)
-        weather_data = self.collect_weather_data(city)
-        
-        if aqi_data and weather_data:
-            return {
-                'city': city,
-                'aqi': aqi_data,
-                'weather': weather_data,
-                'timestamp': datetime.now().isoformat()
+        self.default_parameter = "pm25"
+
+    def get_openaq_aqi_between_dates(self, city, parameter, start_date, end_date, limit=1000):
+        """Collect historical AQI data for a city from OpenAQ."""
+        base_url = "https://api.openaq.org/v2/measurements"
+        all_results = []
+        page = 1
+
+        while True:
+            params = {
+                "city": city['name'],
+                "parameter": parameter,
+                "limit": limit,
+                "page": page,
+                "date_from": start_date.isoformat(),
+                "date_to": end_date.isoformat(),
+                "sort": "asc"
             }
-        else:
-            logger.warning(f"Could not collect complete data for {city['name']}")
-            return None
-    
-    def collect_all_cities_data(self, cities=None):
-        """Collect data for all cities."""
-        if cities is None:
-            cities = Config.CITIES
-        
-        logger.info(f"Collecting data for {len(cities)} cities...")
-        
-        all_data = []
-        for city in cities:
-            city_data = self.collect_city_data(city)
-            if city_data:
-                all_data.append(city_data)
-            time.sleep(1)
-        
-        logger.info(f"Collected data for {len(all_data)} cities")
-        return all_data
+
+            response = requests.get(base_url, params=params)
+            if response.status_code != 200:
+                logger.warning(f"OpenAQ request failed for {city['name']} on page {page} with status code {response.status_code}")
+                break
+
+            data = response.json()
+            results = data.get("results", [])
+            if not results:
+                break
+
+            all_results.extend(results)
+            if len(results) < limit:
+                break
+
+            page += 1
+            time.sleep(1)  # Be nice to the API
+
+        if not all_results:
+            logger.warning(f"No historical AQI data found for {city['name']}")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_results)
+        return df
