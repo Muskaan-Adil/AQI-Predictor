@@ -40,16 +40,50 @@ class FeatureStore:
             raise
 
     def get_feature_view(self, name: str, version: int = 1):
-        """Fetch a feature view by its name."""
+        """Fetch a feature view by its name. If not exists, create it."""
         try:
+            # Try fetching the feature view
             feature_view = self.fs.get_feature_view(name=name, version=version)
+            
             if feature_view is None:
-                logger.error(f"Feature view '{name}' with version {version} not found")
-                return None
-            logger.info(f"Successfully fetched feature view: {name}, version: {version}")
+                logger.info(f"Feature view '{name}' with version {version} not found, creating it now.")
+                
+                # Define the schema and create the feature view
+                feature_view = self._create_feature_view(name, version)
+            
+            logger.info(f"Successfully fetched or created feature view: {name}, version: {version}")
             return feature_view
         except Exception as e:
-            logger.error(f"Failed to fetch feature view '{name}': {str(e)}")
+            logger.error(f"Failed to fetch or create feature view '{name}': {str(e)}")
+            raise
+
+    def _create_feature_view(self, name: str, version: int):
+        """Create a feature view."""
+        try:
+            # Define the schema for the feature view (you can customize it based on your needs)
+            schema = [
+                # Define the schema columns (example columns)
+                ("timestamp", "int64"),
+                ("city", "str"),
+                ("lat", "float32"),
+                ("lon", "float32"),
+                ("aqi", "int32"),
+                # Add any other columns based on the actual features
+            ]
+    
+            # Create the feature view
+            feature_view = self.fs.create_feature_view(
+                name=name,
+                version=version,
+                schema=schema,
+                primary_key=["timestamp"],
+                event_time="timestamp",
+                online_enabled=False,
+            )
+            logger.info(f"Feature view '{name}' created successfully")
+            return feature_view
+        except Exception as e:
+            logger.error(f"Failed to create feature view '{name}': {str(e)}")
             raise
 
     def get_training_data(self, feature_view_name: str, target_cols: List[str]):
