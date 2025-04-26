@@ -1,73 +1,53 @@
-import pandas as pd
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 import logging
-
-from utils.config import Config
+import pandas as pd
 from data_collector import DataCollector
-from src.feature_engineering.feature_generator import FeatureGenerator
-from src.feature_engineering.feature_store import FeatureStore
+from feature_store import FeatureStore 
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-class HistoricalBackfill:
-    """Class for backfilling historical data from OpenAQ."""
+def backfill_data():
+    """Backfill historical data for AQI from CSV file stored in a GitHub repository."""
+    
+    # URL for your CSV file in the GitHub repository
+    csv_url = "https://raw.githubusercontent.com/your-username/your-repo/main/path/to/aqi_data.csv"  # Update with the raw GitHub URL
 
-    def __init__(self):
-        self.data_collector = DataCollector()
-        self.feature_generator = FeatureGenerator()
-        self.feature_store = FeatureStore()
+    # Load CSV directly from GitHub
+    try:
+        aqi_data = pd.read_csv(csv_url)
+        logger.info(f"Successfully loaded CSV data from GitHub: {csv_url}")
+    except Exception as e:
+        logger.error(f"Failed to load CSV data from GitHub: {e}")
+        return
 
-    def run_backfill_for_city(self, city):
-        """Backfill historical AQI data for a specific city using OpenAQ."""
-        end_date = datetime.utcnow().date()
-        start_date = end_date - relativedelta(months=6)
-        city_name = city['name']
+    # Define the date range for backfilling (e.g., last 30 days)
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)  # Example: last 30 days
 
-        logger.info(f"Backfilling AQI data for {city_name} from {start_date} to {end_date}...")
+    # Filter the data based on the date range
+    aqi_data['date'] = pd.to_datetime(aqi_data['date'])
+    filtered_data = aqi_data[(aqi_data['date'] >= start_date) & (aqi_data['date'] <= end_date)]
 
-        aqi_df = self.data_collector.get_openaq_aqi_between_dates(
-            city=city,
-            parameter='pm25',
-            start_date=start_date,
-            end_date=end_date
-        )
+    if filtered_data.empty:
+        logger.warning(f"No data found in the date range {start_date} to {end_date}")
+        return
 
-        if aqi_df.empty:
-            logger.warning(f"No AQI data collected for {city_name}")
-            return pd.DataFrame()
+    logger.info(f"Backfilling data from {start_date} to {end_date}...")
 
-        logger.info(f"Generating features for {city_name}...")
-        features_df = self.feature_generator.generate_all_features(aqi_df)
+    # Assuming the data has a 'city' column, and we want to process data for each city
+    cities = filtered_data['city'].unique()
 
-        logger.info(f"Storing features for {city_name}...")
-        success = self.feature_store.store_features(features_df)
+    # Loop through each city and process data
+    for city in cities:
+        city_data = filtered_data[filtered_data['city'] == city]
+        
+        # You would typically call your FeatureStore or other functions to process/store the data
+        feature_store = FeatureStore()
+        feature_store.save_city_data(city, city_data)
 
-        if success:
-            logger.info(f"Backfill for {city_name} completed successfully.")
-        else:
-            logger.warning(f"Backfill for {city_name} failed to store features.")
+        logger.info(f"Data for {city} backfilled successfully.")
 
-        return features_df
-
-    def run_backfill_for_all_cities(self):
-        """Run backfill for all configured cities."""
-        all_features = []
-        for city in Config.CITIES:
-            city_features = self.run_backfill_for_city(city)
-            if not city_features.empty:
-                all_features.append(city_features)
-        if all_features:
-            return pd.concat(all_features, ignore_index=True)
-        return pd.DataFrame()
-
-def run_backfill_job():
-    backfill = HistoricalBackfill()
-    return backfill.run_backfill_for_all_cities()
+    logger.info("Backfilling completed.")
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    run_backfill_job()
+    backfill_data()
