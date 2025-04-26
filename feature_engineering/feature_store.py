@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from typing import List, Dict
 from utils.config import Config
+from hsfs.feature import Feature
 
 logger = logging.getLogger(__name__)
 
