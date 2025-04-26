@@ -4,7 +4,7 @@ import os
 import logging
 from datetime import datetime
 import hopsworks
-from src.utils.config import Config
+from utils.config import Config
 
 logger = logging.getLogger(__name__)
 
