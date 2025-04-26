@@ -1,9 +1,6 @@
 import hopsworks
 import pandas as pd
-import os
 import logging
-import time
-import json
 from datetime import datetime
 from typing import List, Dict
 from utils.config import Config
@@ -11,10 +8,12 @@ from utils.config import Config
 logger = logging.getLogger(__name__)
 
 class FeatureStore:
-    """Fixed feature storage with proper type handling"""
+    """Hopsworks-only feature storage with strict type handling"""
     
     def __init__(self):
+        # Disable Kafka to prevent connection issues
         os.environ['ENABLE_HOPSWORKS_KAFKA'] = '0'
+        
         self.api_key = Config.HOPSWORKS_API_KEY
         if not self.api_key:
             raise ValueError("HOPSWORKS_API_KEY not set")
@@ -22,53 +21,70 @@ class FeatureStore:
         try:
             self.project = hopsworks.login(api_key_value=self.api_key)
             self.fs = self.project.get_feature_store()
-            logger.info("Connected to Hopsworks")
+            logger.info("Connected to Hopsworks Feature Store")
         except Exception as e:
             logger.error(f"Connection failed: {str(e)}")
-            self.fs = None
+            raise  # Fail fast if connection fails
 
     def store_features(self, features: List[Dict]):
-        """Storage with proper type conversion"""
+        """Store features with strict type validation"""
         try:
             df = self._prepare_data(features)
-            self._store_locally(df)
-            if self.fs:
-                self._store_to_hopsworks(df)
+            self._store_to_hopsworks(df)
         except Exception as e:
             logger.error(f"Storage failed: {str(e)}")
-            self._emergency_save(features)
+            raise  # Let the caller handle the error
 
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
-        """Convert data types properly"""
+        """Convert data types to match Hopsworks schema exactly"""
         df = pd.DataFrame(features)
         
-        # Convert timestamp to milliseconds
+        # Convert timestamp to milliseconds (bigint)
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
         
-        # Define numeric columns that should be bigint
-        numeric_cols = [
-            'aqi', 'pm25', 'pm10', 'o3', 'no2', 'so2', 'co',
-            'temp', 'feels_like', 'pressure', 'humidity',
-            'wind_speed', 'wind_deg', 'clouds', 'weather_id'
-        ]
+        # Define exact type mapping
+        type_mapping = {
+            # BigInt columns
+            'aqi': 'int64',
+            'pm25': 'int64',
+            'pm10': 'int64',
+            'temp': 'int64',
+            'feels_like': 'int64',
+            'pressure': 'int64',
+            'humidity': 'int64',
+            'wind_speed': 'int64',
+            'wind_deg': 'int64',
+            'clouds': 'int64',
+            'weather_id': 'int64',
+            
+            # Double columns
+            'o3': 'float64',
+            'no2': 'float64',
+            'so2': 'float64',
+            'co': 'float64',
+            
+            # String columns
+            'city': 'str',
+            'weather_main': 'str'
+        }
         
-        # Convert numeric columns
-        for col in numeric_cols:
+        # Apply type conversion
+        for col, dtype in type_mapping.items():
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1).astype('int64')
-        
-        # Handle string columns
-        string_cols = ['city', 'weather_main']
-        for col in string_cols:
-            if col in df.columns:
-                df[col] = df[col].fillna('').astype(str)
+                if dtype == 'int64':
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1).astype('int64')
+                elif dtype == 'float64':
+                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1.0).astype('float64')
+                else:
+                    df[col] = df[col].fillna('').astype('str')
         
         return df
 
     def _store_to_hopsworks(self, df: pd.DataFrame):
-        """Storage with schema validation"""
+        """Strict schema validation with feature group creation"""
         try:
+            # Get or create feature group with explicit schema
             fg = self.fs.get_or_create_feature_group(
                 name="karachi_aqi_realtime",
                 version=1,
@@ -78,62 +94,42 @@ class FeatureStore:
                 statistics_config={"enabled": False}
             )
             
-            # Explicit schema definition
-            fg.save(
-                features=df,
-                write_options={"start_offline_backfill": True}
-            )
-            logger.info(f"Stored {len(df)} records to Hopsworks")
+            # Validate schema before insert
+            fg.validate(dataframe=df)
+            
+            # Insert data
+            fg.insert(df)
+            logger.info(f"Successfully stored {len(df)} records")
+            
         except Exception as e:
             logger.error(f"Hopsworks storage failed: {str(e)}")
             raise
 
-    def _store_locally(self, df: pd.DataFrame):
-        """Atomic local storage"""
-        os.makedirs('data', exist_ok=True)
-        filename = "data/karachi_aqi.csv"
-        try:
-            temp_file = f"{filename}.tmp"
-            df.to_csv(temp_file, index=False)
-            if os.path.exists(filename):
-                os.replace(filename, f"{filename}.bak")
-            os.replace(temp_file, filename)
-            logger.info(f"Local storage successful: {filename}")
-        except Exception as e:
-            logger.error(f"Local storage failed: {str(e)}")
-            raise
-
-    def _emergency_save(self, data: List[Dict]):
-        """JSON-safe emergency save"""
-        try:
-            os.makedirs('data/emergency', exist_ok=True)
-            ts = int(time.time())
-            
-            # Convert datetime objects to strings
-            serializable_data = []
-            for record in data:
-                safe_record = {}
-                for key, value in record.items():
-                    if isinstance(value, datetime):
-                        safe_record[key] = value.isoformat()
-                    else:
-                        safe_record[key] = value
-                serializable_data.append(safe_record)
-            
-            with open(f"data/emergency/aqi_{ts}.json", 'w') as f:
-                json.dump(serializable_data, f)
-            logger.critical(f"Emergency backup: data/emergency/aqi_{ts}.json")
-        except Exception as e:
-            logger.critical(f"FATAL: All storage failed! {str(e)}")
-
 if __name__ == "__main__":
+    # Example usage
     test_data = [{
         'city': 'Karachi',
         'timestamp': datetime.now(),
-        'aqi': 150,
-        'pm25': 120,
+        'aqi': 154,
+        'pm25': 154,
+        'pm10': 81,
+        'o3': 18.6,
+        'no2': 4.1,
+        'so2': 1.4,
+        'co': 5.0,
         'temp': None,
+        'feels_like': None,
+        'pressure': None,
+        'humidity': None,
+        'wind_speed': None,
+        'wind_deg': None,
+        'clouds': None,
+        'weather_id': None,
         'weather_main': None
     }]
-    store = FeatureStore()
-    store.store_features(test_data)
+    
+    try:
+        store = FeatureStore()
+        store.store_features(test_data)
+    except Exception as e:
+        print(f"Pipeline failed: {str(e)}")
