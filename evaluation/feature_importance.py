@@ -3,7 +3,7 @@ import numpy as np
 import shap
 import matplotlib.pyplot as plt
 import logging
-from src.utils.config import Config
+from utils.config import Config
 
 logger = logging.getLogger(__name__)
 
