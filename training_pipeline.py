@@ -5,6 +5,9 @@ import yaml
 import pandas as pd
 import numpy as np
 from typing import List, Tuple, Optional
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,16 +43,29 @@ def load_cities() -> List[dict]:
         return default_cities
 
 def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
-    """Preprocess data by removing non-numeric columns and handling missing values."""
-    # Remove string columns
-    numeric_cols = X.select_dtypes(include=[np.number]).columns
-    X = X[numeric_cols]
-    
-    # Handle missing values
-    X = X.fillna(X.mean())
-    y = y.fillna(y.mean())
-    
-    return X, y
+    """Preprocess data by handling missing values and scaling."""
+    try:
+        # Convert all columns to numeric, coercing errors to NaN
+        X = X.apply(pd.to_numeric, errors='coerce')
+        y = pd.to_numeric(y, errors='coerce')
+        
+        # Create preprocessing pipeline
+        preprocessor = Pipeline([
+            ('imputer', SimpleImputer(strategy='mean')),
+            ('scaler', StandardScaler())
+        ])
+        
+        # Apply preprocessing
+        X_processed = preprocessor.fit_transform(X)
+        X = pd.DataFrame(X_processed, columns=X.columns, index=X.index)
+        
+        # Handle target variable
+        y = y.fillna(y.mean())
+        
+        return X, y
+    except Exception as e:
+        logger.error(f"Error in data preprocessing: {e}")
+        return None, None
 
 def get_training_data(feature_store: FeatureStore,
                      feature_view_name: str,
@@ -85,6 +101,10 @@ def get_training_data(feature_store: FeatureStore,
         # Preprocess data
         X, y = preprocess_data(X, y)
         
+        if X is None or y is None:
+            logger.error("Data preprocessing failed")
+            return None, None
+        
         logger.info(f"Retrieved training data with {X.shape[0]} samples and {X.shape[1]} features")
         return X, y
     
@@ -93,16 +113,16 @@ def get_training_data(feature_store: FeatureStore,
         return None, None
 
 def clean_metrics(metrics: dict) -> dict:
-    """Replace infinite values with large finite numbers for model registry."""
+    """Replace infinite values and handle edge cases for model registry."""
     cleaned = {}
     for k, v in metrics.items():
         if isinstance(v, (int, float)):
-            if np.isinf(v):
+            if np.isinf(v) or np.isnan(v):
                 cleaned[k] = 1e6 if v > 0 else -1e6
             else:
-                cleaned[k] = v
+                cleaned[k] = float(v)
         else:
-            cleaned[k] = v
+            cleaned[k] = str(v)
     return cleaned
 
 def run_training_pipeline() -> None:
@@ -146,8 +166,8 @@ def run_training_pipeline() -> None:
                 best_model = models[best_model_name]
                 best_metrics = clean_metrics(metrics[best_model_name])
                 
-                # Skip feature importance for linear models
-                if best_model_name not in ['linear', 'ridge', 'lasso']:
+                # Feature importance analysis (skip for linear models)
+                if best_model_name in ['random_forest', 'gradient_boosting']:
                     try:
                         analyzer = FeatureImportanceAnalyzer(best_model.model, X=X)
                         analyzer.generate_explainer()
@@ -158,7 +178,7 @@ def run_training_pipeline() -> None:
                 
                 # Save to model registry
                 try:
-                    model_registry.save_model(
+                    model_version = model_registry.save_model(
                         model=best_model.model,
                         name=f"{city_name.lower().replace(' ', '_')}_{target_col}",
                         metrics=best_metrics,
@@ -169,7 +189,7 @@ def run_training_pipeline() -> None:
                         },
                         description=f"Best model for {city_name} - {target_col} ({best_model_name})"
                     )
-                    logger.info(f"Saved best model for {city_name} - {target_col} to registry")
+                    logger.info(f"Saved model version {model_version} for {city_name} - {target_col}")
                 except Exception as e:
                     logger.error(f"Failed to save model to registry: {e}")
         
