@@ -2,6 +2,7 @@ import logging
 import os
 import yaml
 
+from utils.config import Config  # ✅ Added to access API keys
 from data_collection.data_collector import DataCollector
 from feature_engineering.feature_generator import FeatureGenerator
 from feature_engineering.feature_store import FeatureStore
@@ -13,13 +14,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
 def load_cities():
     """Load cities from YAML configuration file."""
     yaml_path = 'cities.yaml'
     
+    # ✅ Default to Karachi if YAML is missing
     default_cities = [
-        {"name": "New York", "lat": 40.7128, "lon": -74.0060},
-        {"name": "London", "lat": 51.5074, "lon": -0.1278},
+        {"name": "Karachi", "lat": 24.8607, "lon": 67.0011}
     ]
     
     try:
@@ -29,7 +31,7 @@ def load_cities():
                 if data and 'cities' in data and isinstance(data['cities'], list):
                     logger.info(f"Loaded {len(data['cities'])} cities from YAML")
                     return data['cities']
-        logger.warning("Cities YAML not found, using default cities")
+        logger.warning("Cities YAML not found or invalid, using default cities")
         return default_cities
     except Exception as e:
         logger.error(f"Error loading cities from YAML: {e}")
@@ -46,17 +48,19 @@ def run_feature_pipeline():
 
         # Step 2: Collect Data
         logger.info("Collecting data from APIs...")
-        
-        # Instantiate the data collector with the necessary API keys
-        api_key_aqicn = Config.AQICN_API_KEY  # Your AQICN API key
-        api_key_openweather = Config.OPENWEATHER_API_KEY  # Your OpenWeather API key
+
+        # ✅ Instantiate the data collector with API keys
+        api_key_aqicn = Config.AQICN_API_KEY
+        api_key_openweather = Config.OPENWEATHER_API_KEY
         if not api_key_aqicn or not api_key_openweather:
             logger.error("API keys for AQICN or OpenWeather are missing")
             return
         
-        data_collector = DataCollector(api_key_aqicn=api_key_aqicn, api_key_openweather=api_key_openweather)
+        data_collector = DataCollector(
+            api_key_aqicn=api_key_aqicn,
+            api_key_openweather=api_key_openweather
+        )
 
-        # Collect data for all cities
         all_data = []
         for city in cities:
             city_data = data_collector.collect_data(city)
@@ -76,19 +80,21 @@ def run_feature_pipeline():
             logger.error("Feature generation failed")
             return
 
-        logger.info(f"Generated features: {features[:5]}")  # Log only a few features for inspection
+        # ✅ Improved logging
+        logger.info(f"Generated {len(features)} feature records. Sample keys: {list(features[0].keys()) if features else []}")
 
         # Step 4: Store Features in Hopsworks
         logger.info("Storing features in Hopsworks...")
         feature_store = FeatureStore()
         feature_store.store_features(features)
 
-        logger.info("Feature pipeline completed successfully!")
+        logger.info("✅ Feature pipeline completed successfully!")
 
     except Exception as e:
         logger.error(f"Error in feature pipeline: {e}")
         import traceback
         logger.error(traceback.format_exc())
+
 
 if __name__ == "__main__":
     run_feature_pipeline()
