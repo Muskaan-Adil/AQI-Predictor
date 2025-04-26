@@ -23,6 +23,9 @@ class Config:
     HOPSWORKS_PROJECT_ID = "1219758"
     HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
     FEATURE_STORE_NAME = "air_quality_featurestore"
+    
+    # Model registry name
+    MODEL_REGISTRY_NAME = "air_quality_models"
 
     @staticmethod
     def load_cities():
@@ -42,6 +45,28 @@ class Config:
         
         # Return default cities if YAML loading fails
         return Config.default_cities
+
+    @staticmethod
+    def ensure_model_registry_exists(feature_store):
+        """
+        Ensure the model registry exists.
+        If not, create it.
+        """
+        try:
+            registry_name = Config.MODEL_REGISTRY_NAME
+            model_registry = feature_store.get_model_registry()
+            registries = model_registry.list_model_registries()
+
+            existing_names = [r.name for r in registries]
+            if registry_name not in existing_names:
+                logger.info(f"Model Registry '{registry_name}' not found. Creating it...")
+                model_registry.create_model_registry(name=registry_name)
+            else:
+                logger.info(f"Model Registry '{registry_name}' already exists.")
+
+        except Exception as e:
+            logger.error(f"Error ensuring model registry exists: {e}")
+            raise e
 
 # Initialize cities after class definition
 Config.CITIES = Config.load_cities()
