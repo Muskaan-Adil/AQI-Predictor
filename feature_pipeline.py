@@ -39,39 +39,38 @@ def load_cities():
 def run_feature_pipeline():
     """Run the full feature engineering pipeline."""
     logger.info("Starting feature pipeline...")
-    
+
     try:
         # Step 1: Load Cities
         cities = load_cities()
 
         # Step 2: Collect Data
         logger.info("Collecting data from APIs...")
-
-        # Instantiate the data collector
-        data_collector = DataCollector()
-
-        # Load real-time data from APIs
-        logger.info("Collecting real-time data from OpenAQ API...")
-        real_time_data = data_collector.collect_all_cities_data(cities=cities)
         
-        # Backfill data from CSV (using the backfill function in DataCollector)
-        logger.info("Backfilling data from CSV file...")
-        backfilled_data = data_collector.backfill_with_csv()
-
-        # Combine real-time data and backfilled data
-        logger.info("Merging real-time data with backfilled data...")
-        combined_data = data_collector.merge_data(real_time_data, backfilled_data)
-
-        if not combined_data:
-            logger.error("No valid data available after merging real-time and backfilled data")
+        # Instantiate the data collector with the necessary API keys
+        api_key_aqicn = Config.AQICN_API_KEY  # Your AQICN API key
+        api_key_openweather = Config.OPENWEATHER_API_KEY  # Your OpenWeather API key
+        if not api_key_aqicn or not api_key_openweather:
+            logger.error("API keys for AQICN or OpenWeather are missing")
             return
+        
+        data_collector = DataCollector(api_key_aqicn=api_key_aqicn, api_key_openweather=api_key_openweather)
 
-        logger.info(f"Merged data contains {len(combined_data)} records.")
+        # Collect data for all cities
+        all_data = []
+        for city in cities:
+            city_data = data_collector.collect_data(city)
+            if city_data:
+                all_data.append(city_data)
+        
+        if not all_data:
+            logger.error("No data collected from APIs")
+            return
 
         # Step 3: Feature Generation
         logger.info("Generating features...")
         feature_generator = FeatureGenerator()
-        features = feature_generator.generate_all_features(combined_data)
+        features = feature_generator.generate_all_features(all_data)
 
         if not features:
             logger.error("Feature generation failed")
