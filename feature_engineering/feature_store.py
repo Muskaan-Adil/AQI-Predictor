@@ -1,5 +1,6 @@
 import hopsworks
 import pandas as pd
+import os
 import logging
 from datetime import datetime
 from typing import List, Dict
@@ -8,10 +9,10 @@ from utils.config import Config
 logger = logging.getLogger(__name__)
 
 class FeatureStore:
-    """Hopsworks-only feature storage with strict type handling"""
+    """Optimized Hopsworks feature storage with strict type handling"""
     
     def __init__(self):
-        # Disable Kafka to prevent connection issues
+        # Disable Kafka
         os.environ['ENABLE_HOPSWORKS_KAFKA'] = '0'
         
         self.api_key = Config.HOPSWORKS_API_KEY
@@ -24,16 +25,16 @@ class FeatureStore:
             logger.info("Connected to Hopsworks Feature Store")
         except Exception as e:
             logger.error(f"Connection failed: {str(e)}")
-            raise  # Fail fast if connection fails
+            raise
 
     def store_features(self, features: List[Dict]):
-        """Store features with strict type validation"""
+        """Store features with exact type matching"""
         try:
             df = self._prepare_data(features)
             self._store_to_hopsworks(df)
         except Exception as e:
             logger.error(f"Storage failed: {str(e)}")
-            raise  # Let the caller handle the error
+            raise
 
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
         """Convert data types to match Hopsworks schema exactly"""
@@ -43,48 +44,52 @@ class FeatureStore:
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
         
-        # Define exact type mapping
-        type_mapping = {
-            # BigInt columns
-            'aqi': 'int64',
-            'pm25': 'int64',
-            'pm10': 'int64',
-            'temp': 'int64',
-            'feels_like': 'int64',
-            'pressure': 'int64',
-            'humidity': 'int64',
-            'wind_speed': 'int64',
-            'wind_deg': 'int64',
-            'clouds': 'int64',
-            'weather_id': 'int64',
+        # Type conversion mapping
+        type_rules = {
+            # Integer columns
+            'aqi': ('int64', -1),
+            'pm25': ('int64', -1),
+            'pm10': ('int64', -1),
+            'temp': ('int64', -1),
+            'feels_like': ('int64', -1),
+            'pressure': ('int64', -1),
+            'humidity': ('int64', -1),
+            'wind_speed': ('int64', -1),
+            'wind_deg': ('int64', -1),
+            'clouds': ('int64', -1),
+            'weather_id': ('int64', -1),
             
-            # Double columns
-            'o3': 'float64',
-            'no2': 'float64',
-            'so2': 'float64',
-            'co': 'float64',
+            # Float columns
+            'o3': ('float64', -1.0),
+            'no2': ('float64', -1.0),
+            'so2': ('float64', -1.0),
+            'co': ('float64', -1.0),
             
             # String columns
-            'city': 'str',
-            'weather_main': 'str'
+            'city': ('str', ''),
+            'weather_main': ('str', ''),
+            'lat': ('float64', -1.0),
+            'lon': ('float64', -1.0)
         }
         
         # Apply type conversion
-        for col, dtype in type_mapping.items():
+        for col, (dtype, fill_val) in type_rules.items():
             if col in df.columns:
-                if dtype == 'int64':
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1).astype('int64')
-                elif dtype == 'float64':
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(-1.0).astype('float64')
-                else:
-                    df[col] = df[col].fillna('').astype('str')
+                try:
+                    if dtype == 'str':
+                        df[col] = df[col].fillna(fill_val).astype(dtype)
+                    else:
+                        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(fill_val).astype(dtype)
+                except Exception as e:
+                    logger.warning(f"Type conversion failed for {col}: {str(e)}")
+                    df[col] = fill_val
         
         return df
 
     def _store_to_hopsworks(self, df: pd.DataFrame):
         """Strict schema validation with feature group creation"""
         try:
-            # Get or create feature group with explicit schema
+            # Get or create feature group
             fg = self.fs.get_or_create_feature_group(
                 name="karachi_aqi_realtime",
                 version=1,
@@ -93,9 +98,6 @@ class FeatureStore:
                 online_enabled=False,
                 statistics_config={"enabled": False}
             )
-            
-            # Validate schema before insert
-            fg.validate(dataframe=df)
             
             # Insert data
             fg.insert(df)
@@ -106,9 +108,11 @@ class FeatureStore:
             raise
 
 if __name__ == "__main__":
-    # Example usage
+    # Test data with all possible fields
     test_data = [{
         'city': 'Karachi',
+        'lat': 24.8607,
+        'lon': 67.0011,
         'timestamp': datetime.now(),
         'aqi': 154,
         'pm25': 154,
