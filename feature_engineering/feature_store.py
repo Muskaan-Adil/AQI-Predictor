@@ -43,24 +43,22 @@ class FeatureStore:
             raise
 
     def get_training_data(self, feature_view_name: str, target_col: str) -> Tuple[pd.DataFrame, pd.Series]:
-        """Get training data from feature view with proper tuple handling"""
+        """Get training data from feature view with proper error handling"""
         try:
             feature_view = self.get_feature_view(feature_view_name)
             
-            # Get training data (returns tuple: (X, y, metadata))
+            # Get training data (returns X, y, metadata)
             training_data = feature_view.get_training_data(
-                training_dataset_version=1,
-                read_options={"use_hive": True}  # Ensure DataFrame format
+                training_dataset_version=1
             )
             
-            # Unpack tuple correctly
-            X = training_data[0]  # Features DataFrame
-            y = training_data[1][target_col]  # Target Series
+            X = training_data[0]  # Features
+            y = training_data[1][target_col]  # Target
             
-            logger.info(f"Retrieved {X.shape[0]} samples with {X.shape[1]} features")
+            logger.info(f"Retrieved {len(X)} training samples")
             return X, y
         except Exception as e:
-            logger.error(f"Training data error: {str(e)}")
+            logger.error(f"Failed to get training data: {str(e)}")
             raise
 
     def get_feature_view(self, name: str, version: int = 1):
@@ -82,26 +80,23 @@ class FeatureStore:
             raise
 
     def _create_feature_view(self, name: str, version: int):
-        """Create feature view from feature group with proper query"""
+        """Create feature view from feature group"""
         try:
+            # Get the feature group
             fg = self.fs.get_feature_group(
                 name="karachi_aqi_realtime",
                 version=1
             )
             
-            # Explicitly exclude target columns from features
-            features = [feat.name for feat in fg.features 
-                       if feat.name not in ["pm25", "pm10"]]
-            
-            # Create query with feature selection
-            query = fg.select(features)
+            # Create query for feature view
+            query = fg.select_all()
             
             # Create feature view
             feature_view = self.fs.create_feature_view(
                 name=name,
                 version=version,
                 query=query,
-                labels=["pm25", "pm10"]  # Target columns
+                labels=["pm25", "pm10"]  # Specify target columns
             )
             
             # Create training dataset
@@ -115,7 +110,7 @@ class FeatureStore:
             logger.info(f"Created feature view {name} v{version}")
             return feature_view
         except Exception as e:
-            logger.error(f"Feature view creation failed: {str(e)}")
+            logger.error(f"Failed to create feature view: {str(e)}")
             raise
 
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
