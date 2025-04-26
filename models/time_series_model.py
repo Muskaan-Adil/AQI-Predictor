@@ -3,7 +3,7 @@ import pandas as pd
 import statsmodels.api as sm
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import logging
-from src.models.base_model import BaseModel
+from models.base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 
