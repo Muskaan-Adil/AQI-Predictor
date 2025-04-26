@@ -6,12 +6,12 @@ from sklearn.preprocessing import StandardScaler
 import logging
 from datetime import datetime
 from utils.config import Config
-from src.models.linear_model import LinearModel
-from src.models.forest_model import ForestModel
-from src.models.boosting_model import BoostingModel
-from src.models.time_series_model import TimeSeriesModel
-from src.models.neural_net_model import NeuralNetModel
-from src.evaluation.metrics import calculate_metrics
+from models.linear_model import LinearModel
+from models.forest_model import ForestModel
+from models.boosting_model import BoostingModel
+from models.time_series_model import TimeSeriesModel
+from models.neural_net_model import NeuralNetModel
+from evaluation.metrics import calculate_metrics
 
 logger = logging.getLogger(__name__)
 
