@@ -8,17 +8,18 @@ from utils.config import Config
 
 logger = logging.getLogger(__name__)
 
+
 class FeatureStore:
     """Optimized Hopsworks feature storage with strict type handling"""
-    
+
     def __init__(self):
         # Disable Kafka
         os.environ['ENABLE_HOPSWORKS_KAFKA'] = '0'
-        
+
         self.api_key = Config.HOPSWORKS_API_KEY
         if not self.api_key:
             raise ValueError("HOPSWORKS_API_KEY not set")
-        
+
         try:
             self.project = hopsworks.login(api_key_value=self.api_key)
             self.fs = self.project.get_feature_store()
@@ -39,11 +40,24 @@ class FeatureStore:
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
         """Convert data types to match Hopsworks schema exactly"""
         df = pd.DataFrame(features)
-        
+
         # Convert timestamp to milliseconds (bigint)
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
-        
+
+        # Lookup for weather_main -> int
+        weather_main_map = {
+            'Clear': 1,
+            'Clouds': 2,
+            'Rain': 3,
+            'Haze': 4,
+            'Mist': 5,
+            'Fog': 6,
+            'Dust': 7,
+            'Smoke': 8,
+            None: -1
+        }
+
         # Type conversion mapping
         type_rules = {
             # Integer columns
@@ -58,38 +72,39 @@ class FeatureStore:
             'wind_deg': ('int64', -1),
             'clouds': ('int64', -1),
             'weather_id': ('int64', -1),
-            
+            'co': ('int64', -1),  # FIXED: now int instead of float
+            'weather_main': ('int64', -1),  # FIXED: string mapped to int
+
             # Float columns
             'o3': ('float64', -1.0),
             'no2': ('float64', -1.0),
             'so2': ('float64', -1.0),
-            'co': ('float64', -1.0),
-            
+
             # String columns
             'city': ('str', ''),
-            'weather_main': ('str', ''),
             'lat': ('float64', -1.0),
             'lon': ('float64', -1.0)
         }
-        
+
         # Apply type conversion
         for col, (dtype, fill_val) in type_rules.items():
             if col in df.columns:
                 try:
-                    if dtype == 'str':
+                    if col == 'weather_main':
+                        df[col] = df[col].map(weather_main_map).fillna(fill_val).astype(dtype)
+                    elif dtype == 'str':
                         df[col] = df[col].fillna(fill_val).astype(dtype)
                     else:
                         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(fill_val).astype(dtype)
                 except Exception as e:
                     logger.warning(f"Type conversion failed for {col}: {str(e)}")
                     df[col] = fill_val
-        
+
         return df
 
     def _store_to_hopsworks(self, df: pd.DataFrame):
         """Strict schema validation with feature group creation"""
         try:
-            # Get or create feature group
             fg = self.fs.get_or_create_feature_group(
                 name="karachi_aqi_realtime",
                 version=1,
@@ -98,14 +113,14 @@ class FeatureStore:
                 online_enabled=False,
                 statistics_config={"enabled": False}
             )
-            
-            # Insert data
+
             fg.insert(df)
             logger.info(f"Successfully stored {len(df)} records")
-            
+
         except Exception as e:
             logger.error(f"Hopsworks storage failed: {str(e)}")
             raise
+
 
 if __name__ == "__main__":
     # Test data with all possible fields
@@ -129,9 +144,9 @@ if __name__ == "__main__":
         'wind_deg': None,
         'clouds': None,
         'weather_id': None,
-        'weather_main': None
+        'weather_main': 'Clear'
     }]
-    
+
     try:
         store = FeatureStore()
         store.store_features(test_data)
