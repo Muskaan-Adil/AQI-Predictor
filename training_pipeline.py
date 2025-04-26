@@ -4,6 +4,7 @@ from datetime import datetime
 import yaml
 import pandas as pd
 import numpy as np
+from src.utils.config import Config
 
 logging.basicConfig(
     level=logging.INFO,
