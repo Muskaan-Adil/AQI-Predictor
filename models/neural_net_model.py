@@ -8,7 +8,7 @@ from tensorflow.keras.optimizers import Adam
 import logging
 import os
 import tempfile
-from src.models.base_model import BaseModel
+from models.base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 
