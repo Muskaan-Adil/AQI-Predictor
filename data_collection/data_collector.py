@@ -55,3 +55,47 @@ class DataCollector:
 
         df = pd.DataFrame(all_results)
         return df
+
+    def collect_city_data(self, city):
+        """Collect all relevant data for a city."""
+        logger.info(f"Collecting data for {city['name']}...")
+
+        # Example of collecting AQI and weather data (you may need additional methods here)
+        # Assuming OpenAQ and OpenWeather APIs, you can combine them in a method
+
+        # Collect AQI data
+        start_date = datetime.now() - timedelta(days=30)  # last 30 days for example
+        end_date = datetime.now()
+
+        aqi_data = self.get_openaq_aqi_between_dates(city, self.default_parameter, start_date, end_date)
+
+        if aqi_data.empty:
+            logger.warning(f"No AQI data available for {city['name']}")
+            return None
+
+        # You can also collect weather data here if needed
+        # weather_data = self.collect_weather_data(city)
+
+        return {
+            'city': city,
+            'aqi': aqi_data,
+            'timestamp': datetime.now().isoformat()
+        }
+
+    def collect_all_cities_data(self, cities=None):
+        """Collect data for all cities."""
+        if cities is None:
+            # Default cities, you can replace this with your own config logic if necessary
+            cities = [{"name": "New York", "lat": 40.7128, "lon": -74.0060}, {"name": "London", "lat": 51.5074, "lon": -0.1278}]
+
+        logger.info(f"Collecting data for {len(cities)} cities...")
+
+        all_data = []
+        for city in cities:
+            city_data = self.collect_city_data(city)
+            if city_data:
+                all_data.append(city_data)
+            time.sleep(1)  # Sleep to avoid API rate limiting
+
+        logger.info(f"Collected data for {len(all_data)} cities")
+        return all_data
