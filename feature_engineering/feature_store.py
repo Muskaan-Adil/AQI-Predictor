@@ -11,15 +11,15 @@ logger = logging.getLogger(__name__)
 
 class FeatureStore:
     """Hopsworks feature storage with exact type matching"""
-    
+
     def __init__(self):
         # Disable Kafka
         os.environ['ENABLE_HOPSWORKS_KAFKA'] = '0'
-        
+
         self.api_key = Config.HOPSWORKS_API_KEY
         if not self.api_key:
             raise ValueError("HOPSWORKS_API_KEY not set")
-        
+
         try:
             self.project = hopsworks.login(api_key_value=self.api_key)
             self.fs = self.project.get_feature_store()
@@ -40,11 +40,11 @@ class FeatureStore:
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
         """Convert data types to match Hopsworks schema exactly"""
         df = pd.DataFrame(features)
-        
+
         # Convert timestamp to milliseconds (bigint)
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp']).astype('int64') // 10**6
-        
+
         # Exact type mapping based on error message
         type_mapping = {
             # Float columns (32-bit)
@@ -53,7 +53,7 @@ class FeatureStore:
             'o3': ('float32', np.nan),
             'no2': ('float32', np.nan),
             'so2': ('float32', np.nan),
-            
+
             # Integer columns (32-bit)
             'aqi': ('int32', -1),
             'pm25': ('int32', -1),
@@ -67,12 +67,13 @@ class FeatureStore:
             'wind_deg': ('int32', -1),
             'clouds': ('int32', -1),
             'weather_id': ('int32', -1),
-            
+            'weather_main': ('int32', -1),
+
             # String columns
             'city': ('str', ''),
             'weather_main': ('str', '')
         }
-        
+
         # Apply type conversion
         for col, (dtype, fill_val) in type_mapping.items():
             if col in df.columns:
@@ -87,7 +88,7 @@ class FeatureStore:
                 except Exception as e:
                     logger.warning(f"Type conversion failed for {col}: {str(e)}")
                     df[col] = fill_val
-        
+
         return df
 
     def _store_to_hopsworks(self, df: pd.DataFrame):
@@ -102,11 +103,11 @@ class FeatureStore:
                 online_enabled=False,
                 statistics_config={"enabled": False}
             )
-            
+
             # Insert data
             fg.insert(df)
             logger.info(f"Successfully stored {len(df)} records")
-            
+
         except Exception as e:
             logger.error(f"Hopsworks storage failed: {str(e)}")
             raise
@@ -135,7 +136,7 @@ if __name__ == "__main__":
         'weather_id': None,
         'weather_main': None
     }]
-    
+
     try:
         store = FeatureStore()
         store.store_features(test_data)
