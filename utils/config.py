@@ -5,9 +5,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Config:
-    """Configuration handler for AQI Prediction Pipeline"""
+    """Configuration handler for the application."""
     
-    # Default cities
+    # Define default cities first
     default_cities = [
         {'name': 'Karachi', 'lat': 24.8607, 'lon': 67.0011},
         {'name': 'New York', 'lat': 40.7128, 'lon': -74.0060},
@@ -23,16 +23,12 @@ class Config:
     HOPSWORKS_PROJECT_ID = "1219758"
     HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
     FEATURE_STORE_NAME = "air_quality_featurestore"
-    
-    # Data handling
-    NULL_FILL_VALUE = -1  # For numeric nulls
-    NULL_FILL_STRING = ""  # For string nulls
 
     @staticmethod
     def load_cities():
         """Load cities from YAML configuration file"""
         try:
-            # Fixed path concatenation
+            # Get the base directory (3 levels up from config.py)
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             yaml_path = os.path.join(base_dir, 'cities.yaml')
             
@@ -42,8 +38,10 @@ class Config:
                     if data and 'cities' in data:
                         return data['cities']
         except Exception as e:
-            logger.error(f"Error loading cities: {str(e)}")
+            logger.error(f"Error loading cities from YAML: {e}")
+        
+        # Return default cities if YAML loading fails
         return Config.default_cities
 
-# Initialize cities
+# Initialize cities after class definition
 Config.CITIES = Config.load_cities()
