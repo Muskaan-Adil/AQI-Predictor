@@ -32,10 +32,10 @@ class Config:
     def load_cities():
         """Load cities from YAML configuration file"""
         try:
-            yaml_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__)),
-                'cities.yaml'
-            )
+            # Fixed path concatenation
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            yaml_path = os.path.join(base_dir, 'cities.yaml')
+            
             if os.path.exists(yaml_path):
                 with open(yaml_path, 'r') as f:
                     data = yaml.safe_load(f)
