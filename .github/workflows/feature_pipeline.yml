@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: '0 * * * *'  # Runs at the 0th minute of every hour
 
 jobs:
   feature-pipeline:
