@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import List, Dict
 from utils.config import Config
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class FeatureStore:
@@ -35,6 +37,19 @@ class FeatureStore:
             self._store_to_hopsworks(df)
         except Exception as e:
             logger.error(f"Storage failed: {str(e)}")
+            raise
+
+    def get_feature_view(self, name: str, version: int = 1):
+        """Fetch a feature view by its name."""
+        try:
+            feature_view = self.fs.get_feature_view(name=name, version=version)
+            if feature_view is None:
+                logger.error(f"Feature view '{name}' with version {version} not found")
+                return None
+            logger.info(f"Successfully fetched feature view: {name}, version: {version}")
+            return feature_view
+        except Exception as e:
+            logger.error(f"Failed to fetch feature view '{name}': {str(e)}")
             raise
 
     def get_training_data(self, feature_view_name: str, target_cols: List[str]):
@@ -86,11 +101,9 @@ class FeatureStore:
             'wind_deg': ('int32', -1),
             'clouds': ('int32', -1),
             'weather_id': ('int32', -1),
-            'weather_main': ('int32', -1),
 
             # String columns
-            'city': ('str', ''),
-            'weather_main': ('str', '')
+            'city': ('str', '')
         }
 
         # Apply type conversion
@@ -152,8 +165,7 @@ if __name__ == "__main__":
         'wind_speed': None,
         'wind_deg': None,
         'clouds': None,
-        'weather_id': None,
-        'weather_main': None
+        'weather_id': None
     }]
 
     try:
