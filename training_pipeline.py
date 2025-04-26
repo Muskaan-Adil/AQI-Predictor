@@ -12,7 +12,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import your actual FeatureStore class from its module
 from feature_engineering.feature_store import FeatureStore
 from models.model_trainer import ModelTrainer
 from models.model_registry import ModelRegistry
@@ -40,20 +39,24 @@ def load_cities() -> List[dict]:
         logger.error(f"Error loading cities from YAML: {e}")
         return default_cities
 
+def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
+    """Preprocess data by removing non-numeric columns and handling missing values."""
+    # Remove string columns
+    numeric_cols = X.select_dtypes(include=[np.number]).columns
+    X = X[numeric_cols]
+    
+    # Handle missing values
+    X = X.fillna(X.mean())
+    y = y.fillna(y.mean())
+    
+    return X, y
+
 def get_training_data(feature_store: FeatureStore,
                      feature_view_name: str,
                      target_cols: List[str]
                     ) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
     """
-    Fetch training data (features X and target y) from a Hopsworks Feature View.
-    
-    Args:
-        feature_store: Initialized FeatureStore instance
-        feature_view_name: Name of the feature view
-        target_cols: List of target column names
-        
-    Returns:
-        Tuple of (features DataFrame, target Series)
+    Fetch and preprocess training data from feature store.
     """
     try:
         # Get the feature view
@@ -66,7 +69,7 @@ def get_training_data(feature_store: FeatureStore,
             logger.error(f"Feature view '{feature_view_name}' not found")
             return None, None
         
-        # Get training data (returns a tuple)
+        # Get training data
         training_data = feature_view.get_training_data(
             training_dataset_version=1
         )
@@ -75,9 +78,12 @@ def get_training_data(feature_store: FeatureStore,
             logger.error(f"No training data available for feature view '{feature_view_name}'")
             return None, None
         
-        # Split tuple
+        # Split tuple and preprocess
         X = training_data[0]   # Features
         y = training_data[1][target_cols[0]]  # First target column
+        
+        # Preprocess data
+        X, y = preprocess_data(X, y)
         
         logger.info(f"Retrieved training data with {X.shape[0]} samples and {X.shape[1]} features")
         return X, y
@@ -85,6 +91,19 @@ def get_training_data(feature_store: FeatureStore,
     except Exception as e:
         logger.error(f"Failed to get training data from '{feature_view_name}': {e}")
         return None, None
+
+def clean_metrics(metrics: dict) -> dict:
+    """Replace infinite values with large finite numbers for model registry."""
+    cleaned = {}
+    for k, v in metrics.items():
+        if isinstance(v, (int, float)):
+            if np.isinf(v):
+                cleaned[k] = 1e6 if v > 0 else -1e6
+            else:
+                cleaned[k] = v
+        else:
+            cleaned[k] = v
+    return cleaned
 
 def run_training_pipeline() -> None:
     """Run the model training pipeline."""
@@ -125,31 +144,34 @@ def run_training_pipeline() -> None:
                 
                 # Save best model
                 best_model = models[best_model_name]
-                best_metrics = metrics[best_model_name]
+                best_metrics = clean_metrics(metrics[best_model_name])
                 
-                # Feature importance analysis
-                try:
-                    analyzer = FeatureImportanceAnalyzer(best_model.model, X=X)
-                    analyzer.generate_explainer()
-                    analyzer.calculate_shap_values()
-                    importance_df = analyzer.get_feature_importance_df()
-                except Exception as e:
-                    logger.error(f"Error in feature importance analysis: {e}")
+                # Skip feature importance for linear models
+                if best_model_name not in ['linear', 'ridge', 'lasso']:
+                    try:
+                        analyzer = FeatureImportanceAnalyzer(best_model.model, X=X)
+                        analyzer.generate_explainer()
+                        analyzer.calculate_shap_values()
+                        importance_df = analyzer.get_feature_importance_df()
+                    except Exception as e:
+                        logger.error(f"Error in feature importance analysis: {e}")
                 
                 # Save to model registry
-                model_registry.save_model(
-                    model=best_model.model,
-                    name=f"{city_name.lower().replace(' ', '_')}_{target_col}",
-                    metrics=best_metrics,
-                    tags={
-                        'city': city_name,
-                        'target': target_col,
-                        'model_type': best_model_name
-                    },
-                    description=f"Best model for {city_name} - {target_col} ({best_model_name})"
-                )
-                
-                logger.info(f"Saved best model for {city_name} - {target_col} to registry")
+                try:
+                    model_registry.save_model(
+                        model=best_model.model,
+                        name=f"{city_name.lower().replace(' ', '_')}_{target_col}",
+                        metrics=best_metrics,
+                        tags={
+                            'city': city_name,
+                            'target': target_col,
+                            'model_type': best_model_name
+                        },
+                        description=f"Best model for {city_name} - {target_col} ({best_model_name})"
+                    )
+                    logger.info(f"Saved best model for {city_name} - {target_col} to registry")
+                except Exception as e:
+                    logger.error(f"Failed to save model to registry: {e}")
         
         logger.info("Training pipeline completed successfully")
     
