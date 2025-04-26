@@ -37,6 +37,25 @@ class FeatureStore:
             logger.error(f"Storage failed: {str(e)}")
             raise
 
+    def get_training_data(self, feature_view_name: str, target_cols: List[str]):
+        """Fetch training data from the feature store by feature view name"""
+        try:
+            # Retrieve feature view by name
+            feature_view = self.fs.get_feature_view(name=feature_view_name)
+
+            # Fetch training data as a DataFrame
+            df = feature_view.get_batch_data()
+
+            # Filter columns based on target_cols and return the data
+            X = df.drop(columns=target_cols)
+            y = df[target_cols]
+
+            logger.info(f"Successfully fetched {len(df)} records for training")
+            return X, y
+        except Exception as e:
+            logger.error(f"Failed to fetch training data: {str(e)}")
+            raise
+
     def _prepare_data(self, features: List[Dict]) -> pd.DataFrame:
         """Convert data types to match Hopsworks schema exactly"""
         df = pd.DataFrame(features)
