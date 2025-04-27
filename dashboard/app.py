@@ -6,9 +6,7 @@ import os
 import sys
 import hopsworks
 import plotly.graph_objects as go
-
-# Import project modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import shap
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
@@ -75,7 +73,7 @@ def prepare_input_features(city):
     current = st.session_state.current_data.get(city)
     if not current:
         return None
-    input_features = np.array([
+    input_features = np.array([  
         current.get('pm25', 0),
         current.get('pm10', 0),
         current.get('temperature', 0),
@@ -101,6 +99,15 @@ def load_forecast(city):
                     'pm25': forecast_pm25[:, 0],
                     'pm10': forecast_pm10[:, 0]
                 })
+                
+                # SHAP Explanation
+                explainer_pm25 = shap.Explainer(best_model_pm25)
+                shap_values_pm25 = explainer_pm25(input_features)
+                
+                # Display SHAP Summary Plot
+                st.subheader(f"SHAP Explanation for {selected_pollutant} Prediction")
+                shap.summary_plot(shap_values_pm25, input_features)
+                
             else:
                 st.warning("Missing input features.")
         else:
