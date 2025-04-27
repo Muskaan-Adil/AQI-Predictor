@@ -77,3 +77,13 @@ class LinearModel(BaseModel):
         except Exception as e:
             logger.error(f"Failed to make predictions: {e}")
             return None
+    
+    def save(self, path: str):
+        """Save the model to disk."""
+        # Implementation for saving linear model
+        pass
+    
+    def load(self, path: str):
+        """Load the model from disk."""
+        # Implementation for loading linear model
+        pass
