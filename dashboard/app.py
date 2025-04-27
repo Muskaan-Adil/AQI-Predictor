@@ -6,13 +6,13 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import os
 import sys
+import hopsworks
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from feature_engineering.feature_generator import FeatureGenerator
-from feature_engineering.feature_store import FeatureStore
 from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
 
@@ -23,8 +23,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Initialize the Hopsworks project and feature store
+project = hopsworks.login()  # Login to your Hopsworks project
+feature_store = project.get_feature_store()  # Get the feature store
 data_collector = DataCollector()
-feature_store = FeatureStore()
 model_registry = ModelRegistry()
 
 if 'current_data' not in st.session_state:
