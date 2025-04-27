@@ -6,7 +6,8 @@ logger = logging.getLogger(__name__)
 
 class Config:
     """Configuration handler for the application."""
-    
+    DASHBOARD_TITLE = "AQI Predictor Dashboard"
+
     # Define default cities first
     default_cities = [
         {'name': 'Karachi', 'lat': 24.8607, 'lon': 67.0011},
