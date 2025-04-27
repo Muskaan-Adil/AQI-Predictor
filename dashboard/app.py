@@ -10,6 +10,10 @@ import shap
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
+from pathlib import Path
+
+# Add project root to Python path
+sys.path.append(str(Path(__file__).parent.parent))
 
 # Streamlit page config
 st.set_page_config(
