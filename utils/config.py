@@ -11,8 +11,6 @@ class Config:
     # Define default cities first
     default_cities = [
         {'name': 'Karachi', 'lat': 24.8607, 'lon': 67.0011},
-        {'name': 'New York', 'lat': 40.7128, 'lon': -74.0060},
-        {'name': 'London', 'lat': 51.5074, 'lon': -0.1278}
     ]
     
     # API keys from environment variables
