@@ -8,6 +8,7 @@ from typing import List, Tuple, Optional
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from abc import ABC, abstractmethod
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,6 +20,42 @@ from feature_engineering.feature_store import FeatureStore
 from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
 
+# Add the BaseModel class definition
+class BaseModel(ABC):
+    """Abstract base class for all machine learning models."""
+    
+    def __init__(self, name: str, target_col: str = None):
+        """
+        Initialize the base model.
+        
+        Args:
+            name (str): Name of the model
+            target_col (str, optional): Target column name. Defaults to None.
+        """
+        self.name = name
+        self.target_col = target_col
+        self.model = None
+        self.feature_importances_ = None
+    
+    @abstractmethod
+    def train(self, X: pd.DataFrame, y: pd.Series):
+        """Train the model on the given data."""
+        pass
+    
+    @abstractmethod
+    def predict(self, X: pd.DataFrame):
+        """Make predictions using the trained model."""
+        pass
+    
+    def get_feature_importances(self):
+        """Get feature importances if available.
+        
+        Returns:
+            np.array or None: Feature importance scores
+        """
+        return self.feature_importances_
+
+# Keep all your existing utility functions below
 def load_cities() -> List[dict]:
     """Load cities from YAML configuration file."""
     # ... (keep existing implementation)
@@ -39,5 +76,3 @@ def get_training_data(feature_store: FeatureStore,
 def clean_metrics(metrics: dict) -> dict:
     """Replace infinite values and handle edge cases for model registry."""
     # ... (keep existing implementation)
-
-# Remove the run_training_pipeline() function - it should be in training_pipeline.py
