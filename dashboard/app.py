@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import os
 import sys
 import hopsworks
+import plotly.graph_objects as go
 
 # Import project modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -42,14 +43,13 @@ if 'forecasts' not in st.session_state:
     st.session_state.forecasts = {}
 
 # Helper Functions
-
 def load_cities():
     return [city['name'] for city in Config.CITIES]
 
 def load_feature_view_data(city):
-    feature_store = project.get_feature_store()
     feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
-    feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]).filter("city == ?", city).to_pandas()
+    feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]) \
+                              .filter("city == ?", city).to_pandas()
     return feature_data
 
 def load_current_data(city):
@@ -65,7 +65,7 @@ def load_current_data(city):
             }
             return st.session_state.current_data[city]
         else:
-            st.error(f"Failed to load data for {city}.")
+            st.error(f"No feature data available for {city}.")
             return None
     except Exception as e:
         st.error(f"Error loading data for {city}: {e}")
@@ -166,5 +166,7 @@ if current:
             font=dict(size=14)
         )
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No forecast data available.")
 else:
     st.error(f"No current data for {selected_city}.")
