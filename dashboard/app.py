@@ -65,23 +65,28 @@ def load_current_data(city):
         st.error(f"City '{city}' not found in configuration.")
         return None
     try:
-        data = data_collector.collect_data(city_info)
-        pm25 = data.get('aqi', {}).get(self.default_parameter)
-        pm10 = data.get('aqi', {}).get('pm10')
-        weather = data.get('weather', {})
-        temperature = weather.get('main', {}).get('temp')
-        humidity = weather.get('main', {}).get('humidity')
-        wind_speed = weather.get('wind', {}).get('speed')
+        raw_data = data_collector.collect_data(city_info)
+        if raw_data:
+            aqi_data = raw_data.get('aqi', {})
+            weather_data = raw_data.get('weather', {})
+            pm25 = aqi_data.get(data_collector.default_parameter)
+            pm10 = aqi_data.get('pm10')
+            temperature = weather_data.get('main', {}).get('temp')
+            humidity = weather_data.get('main', {}).get('humidity')
+            wind_speed = weather_data.get('wind', {}).get('speed')
 
-        # Store extracted data in session state
-        st.session_state.current_data[city] = {
-            'pm25': pm25,
-            'pm10': pm10,
-            'temperature': temperature,
-            'humidity': humidity,
-            'wind_speed': wind_speed
-        }
-        return st.session_state.current_data[city]
+            # Store extracted data in session state
+            st.session_state.current_data[city] = {
+                'pm25': pm25,
+                'pm10': pm10,
+                'temperature': temperature,
+                'humidity': humidity,
+                'wind_speed': wind_speed
+            }
+            return st.session_state.current_data[city]
+        else:
+            st.error(f"Failed to collect data for {city}.")
+            return None
     except Exception as e:
         st.error(f"Failed to load data for {city}: {e}")
         return None
