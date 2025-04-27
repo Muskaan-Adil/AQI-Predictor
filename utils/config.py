@@ -19,7 +19,8 @@ class Config:
     AQICN_API_KEY = os.getenv('AQICN_API_KEY')
     OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
     HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
-    
+    HOPSWORKS_HOST = "c.app.hopsworks.ai"  # ← Community edition host
+
     # Hopsworks configuration
     HOPSWORKS_PROJECT_ID = "1219758"
     HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
