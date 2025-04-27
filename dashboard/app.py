@@ -34,6 +34,7 @@ try:
         port=443
     )
     feature_store = project.get_feature_store()
+    model_registry = project.get_model_registry()
 except Exception as e:
     st.error(f"Failed to connect to Hopsworks: {e}")
     st.stop()
@@ -53,7 +54,6 @@ data_collector = DataCollector(
     api_key_aqicn=Config.AQICN_API_KEY,
     api_key_openweather=Config.OPENWEATHER_API_KEY
 )
-model_registry = ModelRegistry()
 
 # Session states
 if 'current_data' not in st.session_state:
@@ -98,11 +98,18 @@ def prepare_input_features(city):
 
 def load_forecast(city, selected_pollutant):
     if city not in st.session_state.forecasts:
-        best_model = model_registry.get_best_model(name="air_quality_model")
-        if best_model:
+        # Select the appropriate model based on the selected pollutant
+        model_name = f"Karachi_{selected_pollutant.lower()}"
+        model = model_registry.get_model(model_name)
+        
+        if model:
+            # Load the latest version of the model
+            latest_model_version = model.get_latest_version()
+            model_version = latest_model_version.load()
+
             input_features = prepare_input_features(city)
             if input_features is not None:
-                forecast = best_model.predict(input_features)
+                forecast = model_version.predict(input_features)
                 dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
                 st.session_state.forecasts[city] = pd.DataFrame({
                     'date': dates,
@@ -111,6 +118,9 @@ def load_forecast(city, selected_pollutant):
                 })
             else:
                 st.warning("Missing input features.")
+        else:
+            st.warning(f"Model for {selected_pollutant} not found.")
+    
     return st.session_state.forecasts.get(city)
 
 # ========== Sidebar ==========
