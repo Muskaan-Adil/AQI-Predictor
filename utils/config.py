@@ -1,6 +1,7 @@
 import os
 import yaml
 import logging
+from pathlib import Path  # Better path handling
 
 logger = logging.getLogger(__name__)
 
@@ -8,73 +9,65 @@ class Config:
     """Configuration handler for the application."""
     DASHBOARD_TITLE = "AQI Predictor Dashboard"
 
-    # Define default cities first
-    default_cities = [
-        {'name': 'Karachi', 'lat': 24.8607, 'lon': 67.0011},
-    ]
+    # Default cities (now a constant)
+    _DEFAULT_CITIES = [{'name': 'Karachi', 'lat': 24.8607, 'lon': 67.0011}]
     
-    # API keys from environment variables
-    AQICN_API_KEY = os.getenv('AQICN_API_KEY')
-    OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
-    HOPSWORKS_API_KEY = os.getenv('HOPSWORKS_API_KEY')
-    HOPSWORKS_HOST = "c.app.hopsworks.ai"  # ← Community edition host
-
-    # Hopsworks configuration
+    # API keys (type hinted via comment)
+    AQICN_API_KEY: str = os.getenv('AQICN_API_KEY')  # type: ignore
+    OPENWEATHER_API_KEY: str = os.getenv('OPENWEATHER_API_KEY')  # type: ignore
+    HOPSWORKS_API_KEY: str = os.getenv('HOPSWORKS_API_KEY')  # type: ignore
+    
+    # Hopsworks configuration (constants)
+    HOPSWORKS_HOST = "c.app.hopsworks.ai"
     HOPSWORKS_PROJECT_ID = "1219758"
     HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
     FEATURE_STORE_NAME = "air_quality_featurestore"
-    
-    # Model registry name
     MODEL_REGISTRY_NAME = "air_quality_models"
 
-    @staticmethod
-    def load_cities():
-        """Load cities from YAML configuration file"""
+    @classmethod
+    def get_project_root(cls) -> Path:
+        """Get absolute path to project root (more reliable)"""
+        return Path(__file__).parent.parent.parent
+
+    @classmethod
+    def load_cities(cls) -> list[dict]:
+        """Load cities from YAML with enhanced error handling"""
         try:
-            # Get the base directory (3 levels up from config.py)
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            yaml_path = os.path.join(base_dir, 'cities.yaml')
+            yaml_path = cls.get_project_root() / 'cities.yaml'
+            logger.info(f"Loading cities from: {yaml_path}")
             
-            logger.info(f"Attempting to load cities from YAML file at: {yaml_path}")
-
-            if os.path.exists(yaml_path):
-                with open(yaml_path, 'r') as f:
-                    data = yaml.safe_load(f)
-                    if data and 'cities' in data:
-                        logger.info(f"Loaded cities: {data['cities']}")
-                        return data['cities']
-                    else:
-                        logger.error(f"Cities key not found in YAML file: {yaml_path}")
-            else:
-                logger.error(f"YAML file does not exist: {yaml_path}")
+            if not yaml_path.exists():
+                logger.warning("cities.yaml not found, using defaults")
+                return cls._DEFAULT_CITIES
                 
+            with open(yaml_path, 'r') as f:
+                if (data := yaml.safe_load(f)) and 'cities' in data:
+                    logger.info(f"Loaded {len(data['cities'])} cities")
+                    return data['cities']
+                
+            logger.error("YAML missing 'cities' key")
+            return cls._DEFAULT_CITIES
+            
         except Exception as e:
-            logger.error(f"Error loading cities from YAML: {e}")
-        
-        # Return default cities if YAML loading fails
-        return Config.default_cities
+            logger.error(f"YAML loading failed: {str(e)}")
+            return cls._DEFAULT_CITIES
 
     @staticmethod
-    def ensure_model_registry_exists(feature_store):
-        """
-        Ensure the model registry exists.
-        If not, create it.
-        """
+    def ensure_model_registry_exists(feature_store) -> bool:
+        """Ensure model registry exists (now returns success status)"""
         try:
             registry_name = Config.MODEL_REGISTRY_NAME
             model_registry = feature_store.get_model_registry()
-            registries = model_registry.list_model_registries()
-
-            existing_names = [r.name for r in registries]
-            if registry_name not in existing_names:
-                logger.info(f"Model Registry '{registry_name}' not found. Creating it...")
+            
+            if registry_name not in [r.name for r in model_registry.list_model_registries()]:
+                logger.info(f"Creating registry: {registry_name}")
                 model_registry.create_model_registry(name=registry_name)
-            else:
-                logger.info(f"Model Registry '{registry_name}' already exists.")
-
+                
+            return True
+            
         except Exception as e:
-            logger.error(f"Error ensuring model registry exists: {e}")
-            raise e
+            logger.error(f"Registry setup failed: {str(e)}")
+            raise RuntimeError(f"Could not ensure registry exists: {str(e)}")
 
-# Initialize cities after class definition
-Config.CITIES = Config.load_cities()
+# Initialize (now using classmethod)
+CITIES = Config.load_cities()
