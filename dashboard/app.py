@@ -24,7 +24,13 @@ st.set_page_config(
 )
 
 # Initialize the Hopsworks project and feature store
-project = hopsworks.login()  # Login to your Hopsworks project
+project = hopsworks.login(
+    project=Config.HOPSWORKS_PROJECT_NAME,
+    api_key_value=Config.HOPSWORKS_API_KEY,
+    host=Config.HOPSWORKS_HOST,  # Add this to your Config class
+    port=443,
+    connection_timeout=30  # Add timeout
+)
 feature_store = project.get_feature_store()  # Get the feature store
 data_collector = DataCollector()
 model_registry = ModelRegistry()
