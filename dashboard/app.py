@@ -150,36 +150,32 @@ if selected_city not in st.session_state.current_data:
 current = st.session_state.current_data.get(selected_city)
 
 if current:
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col1:
-        st.subheader("Current AQI Levels")
-        pollutant_value = current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10')
-        if pollutant_value:
-            st.metric(label=f"{selected_pollutant} (µg/m³)", value=round(pollutant_value, 1))
-        else:
-            st.warning("Pollutant data not available.")
+    # Feature Importance Block
+    st.subheader("Feature Importance")
+    feature_importance = get_feature_importance(selected_city)
+    if feature_importance is not None and not feature_importance == {}:
+        st.dataframe(feature_importance)
+    else:
+        st.info("No feature importance available.")
 
-    with col2:
-        st.subheader("Weather Info")
+    # Current Info Block
+    st.subheader("Current Weather & AQI Info")
+    col1, col2 = st.columns(2)
+    
+    with col1:
         st.metric("Temperature (°C)", round(current.get('temperature', 0), 1))
         st.metric("Humidity (%)", current.get('humidity', 0))
         st.metric("Wind Speed (m/s)", round(current.get('wind_speed', 0), 1))
-
-    with col3:
-        st.subheader("Feature Importance")
-        feature_importance = get_feature_importance(selected_city)
-        if feature_importance is not None and not feature_importance == {}:
-            st.dataframe(feature_importance)
-        else:
-            st.info("No feature importance available.")
-
-    st.markdown("---")
     
+    with col2:
+        st.metric(label=f"PM2.5 (µg/m³)" if selected_pollutant == "PM2.5" else "PM10 (µg/m³)", 
+                  value=round(current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10'), 1))
+
+    # Forecasting Graph Block
+    st.subheader("3-Day Forecast")
     forecast = load_forecast(selected_city)
 
     if forecast is not None:
-        st.subheader("3-Day Forecast")
-
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=forecast['date'],
