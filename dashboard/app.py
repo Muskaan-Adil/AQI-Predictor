@@ -1,29 +1,24 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import yaml
-import hopsworks
-import os
 from datetime import datetime, timedelta
+import os
+import sys
+import hopsworks
 
 # Import project modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
 
 # Streamlit page config
 st.set_page_config(
-    page_title="AQI PREDICTOR DASHBOARD",
+    page_title="AQI Predictor Dashboard",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# API keys check
-if not Config.AQICN_API_KEY or not Config.OPENWEATHER_API_KEY:
-    st.error("API keys missing. Please set AQICN_API_KEY and OPENWEATHER_API_KEY.")
-    st.stop()
 
 # Hopsworks connection
 try:
@@ -34,26 +29,12 @@ try:
         port=443
     )
     feature_store = project.get_feature_store()
-    model_registry = project.get_model_registry()
 except Exception as e:
     st.error(f"Failed to connect to Hopsworks: {e}")
     st.stop()
 
-# Load city names from cities.yaml
-def load_cities():
-    try:
-        with open("cities.yaml", "r") as file:
-            cities = yaml.safe_load(file)
-            return [city["name"] for city in cities["cities"]]  # Correcting the YAML structure access
-    except Exception as e:
-        st.error(f"Error loading cities from YAML: {e}")
-        return []
-
 # Initialize collectors
-data_collector = DataCollector(
-    api_key_aqicn=Config.AQICN_API_KEY,
-    api_key_openweather=Config.OPENWEATHER_API_KEY
-)
+model_registry = ModelRegistry()
 
 # Session states
 if 'current_data' not in st.session_state:
@@ -63,24 +44,32 @@ if 'forecasts' not in st.session_state:
 
 # Helper Functions
 
+def load_cities():
+    return [city['name'] for city in Config.CITIES]
+
 def load_feature_view_data(city):
-    feature_view = feature_store.get_feature_view("karachi_aqi_features")
+    feature_store = project.get_feature_store()
+    feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
     feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]).filter("city == ?", city).to_pandas()
     return feature_data
 
 def load_current_data(city):
-    city_data = load_feature_view_data(city)
-    if city_data is not None and not city_data.empty:
-        st.session_state.current_data[city] = {
-            'pm25': city_data['pm25'].iloc[-1],
-            'pm10': city_data['pm10'].iloc[-1],
-            'temperature': city_data['temperature'].iloc[-1],
-            'humidity': city_data['humidity'].iloc[-1],
-            'wind_speed': city_data['wind_speed'].iloc[-1]
-        }
-        return st.session_state.current_data[city]
-    else:
-        st.error(f"Failed to collect data for {city}.")
+    try:
+        feature_data = load_feature_view_data(city)
+        if not feature_data.empty:
+            st.session_state.current_data[city] = {
+                'pm25': feature_data['pm25'].iloc[-1],
+                'pm10': feature_data['pm10'].iloc[-1],
+                'temperature': feature_data['temperature'].iloc[-1],
+                'humidity': feature_data['humidity'].iloc[-1],
+                'wind_speed': feature_data['wind_speed'].iloc[-1]
+            }
+            return st.session_state.current_data[city]
+        else:
+            st.error(f"Failed to load data for {city}.")
+            return None
+    except Exception as e:
+        st.error(f"Error loading data for {city}: {e}")
         return None
 
 def prepare_input_features(city):
@@ -96,47 +85,45 @@ def prepare_input_features(city):
     ]).reshape(1, -1)
     return input_features
 
-def load_forecast(city, selected_pollutant):
-    if city not in st.session_state.forecasts:
-        # Select the appropriate model based on the selected pollutant
-        model_name = f"Karachi_{selected_pollutant.lower()}"
-        model = model_registry.get_model(model_name)
+def load_forecast(city):
+    forecast = {}
+    try:
+        best_model_pm25 = model_registry.get_latest_model(name="Karachi_pm25")
+        best_model_pm10 = model_registry.get_latest_model(name="Karachi_pm10")
         
-        if model:
-            # Load the latest version of the model
-            latest_model_version = model.get_latest_version()
-            model_version = latest_model_version.load()
-
+        if best_model_pm25 and best_model_pm10:
             input_features = prepare_input_features(city)
             if input_features is not None:
-                forecast = model_version.predict(input_features)
+                forecast_pm25 = best_model_pm25.predict(input_features)
+                forecast_pm10 = best_model_pm10.predict(input_features)
                 dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-                st.session_state.forecasts[city] = pd.DataFrame({
+                forecast = pd.DataFrame({
                     'date': dates,
-                    'pm25': forecast[:, 0],
-                    'pm10': forecast[:, 1]
+                    'pm25': forecast_pm25[:, 0],
+                    'pm10': forecast_pm10[:, 0]
                 })
             else:
                 st.warning("Missing input features.")
         else:
-            st.warning(f"Model for {selected_pollutant} not found.")
-    
-    return st.session_state.forecasts.get(city)
+            st.warning("No models found for prediction.")
+    except Exception as e:
+        st.error(f"Error generating forecast: {e}")
+    return forecast
 
 # ========== Sidebar ==========
 
-st.sidebar.title("Pearls AQI Predictor")
+st.sidebar.title("AQI Predictor")
 st.sidebar.markdown("---")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("Select City", cities)
-selected_pollutant = st.sidebar.selectbox("Select Pollutant", ["PM2.5", "PM10"])  # Using a dropdown for pollutant selection
-if st.sidebar.button("Refresh"):
+selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
+if st.sidebar.button("🔄 Refresh"):
     load_current_data(selected_city)
     st.session_state.forecasts.pop(selected_city, None)
 
 # ========== Main Layout ==========
 
-st.title(f"Air Quality Forecast")
+st.title(f"Air Quality Forecast for {selected_city}")
 
 if selected_city not in st.session_state.current_data:
     with st.spinner(f"Loading {selected_city} data..."):
@@ -145,46 +132,33 @@ if selected_city not in st.session_state.current_data:
 current = st.session_state.current_data.get(selected_city)
 
 if current:
-    # Current Weather Info Block
-    st.subheader("Current Weather Info")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.metric("Temperature (°C)", round(current.get('temperature', 0), 1))
-        st.metric("Humidity (%)", current.get('humidity', 0))
-        st.metric("Wind Speed (m/s)", round(current.get('wind_speed', 0), 1))
-    
-    # Current AQI Level Block
-    col1, col2 = st.columns(2)
-    with col1:
-        if selected_pollutant == "PM2.5":
-            st.metric("PM2.5 (µg/m³)", round(current.get('pm25', 0), 1))
-        else:
-            st.metric("PM10 (µg/m³)", round(current.get('pm10', 0), 1))
+    # Stack current AQI level and weather info
+    st.subheader("Current AQI Levels")
+    pollutant_value = current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10')
+    if pollutant_value:
+        st.metric(label=f"{selected_pollutant} (µg/m³)", value=round(pollutant_value, 1))
+    else:
+        st.warning("Pollutant data not available.")
 
-    # Forecasting Graph Block
-    st.subheader("3-Day Forecast")
-    forecast = load_forecast(selected_city, selected_pollutant)
+    st.subheader("Current Weather Information")
+    st.metric("Temperature (°C)", round(current.get('temperature', 0), 1))
+    st.metric("Humidity (%)", current.get('humidity', 0))
+    st.metric("Wind Speed (m/s)", round(current.get('wind_speed', 0), 1))
 
-    if forecast is not None:
+    # Forecast Graph
+    forecast = load_forecast(selected_city)
+
+    if forecast is not None and not forecast.empty:
+        st.subheader("3-Day Forecast")
+
         fig = go.Figure()
-        if selected_pollutant == "PM2.5":
-            fig.add_trace(go.Scatter(
-                x=forecast['date'],
-                y=forecast['pm25'],
-                mode='lines+markers',
-                name="Forecasted PM2.5",
-                line=dict(color="#636EFA", width=3)
-            ))
-        else:
-            fig.add_trace(go.Scatter(
-                x=forecast['date'],
-                y=forecast['pm10'],
-                mode='lines+markers',
-                name="Forecasted PM10",
-                line=dict(color="#FF5733", width=3)
-            ))
-
+        fig.add_trace(go.Scatter(
+            x=forecast['date'],
+            y=forecast['pm25'] if selected_pollutant == "PM2.5" else forecast['pm10'],
+            mode='lines+markers',
+            name=f"Forecasted {selected_pollutant}",
+            line=dict(color="#636EFA", width=3)
+        ))
         fig.update_layout(
             xaxis_title="Date",
             yaxis_title=f"{selected_pollutant} (µg/m³)",
@@ -193,6 +167,5 @@ if current:
             font=dict(size=14)
         )
         st.plotly_chart(fig, use_container_width=True)
-
 else:
     st.error(f"No current data for {selected_city}.")
