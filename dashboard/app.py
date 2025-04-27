@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import os
 import sys
 import hopsworks
+
+# Ensure the correct configuration is loaded
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import Config
 from data_collection.data_collector import DataCollector
@@ -97,8 +99,8 @@ def load_forecast(city):
         # Load the best model from the registry
         best_model = model_registry.get_best_model(name="air_quality_model")
         if best_model:
-            # Prepare input features for prediction (define this function elsewhere)
-            input_features = prepare_input_features(city)  # Placeholder for actual implementation
+            # Prepare input features for prediction
+            input_features = prepare_input_features(city)
             forecast = best_model.predict(input_features)
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
             st.session_state.forecasts[city] = pd.DataFrame({
@@ -185,19 +187,12 @@ if current_data:
     with col1:
         st.markdown("### Current PM2.5")
         pm25 = current_data.get('pm25')
-        if pm25 is not None:
-            st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
-            st.markdown(f"**Category**: {get_aqi_category(pm25)}")
-        else:
-            st.markdown("<h1 style='color: #CCCCCC;'>No Data Available</h1>", unsafe_allow_html=True)
-            st.markdown("**Category**: Unknown")
+        st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
+        st.markdown(f"**Category**: {get_aqi_category(pm25)}")
     with col2:
         st.markdown("### Current PM10")
         pm10 = current_data.get('pm10')
-        if pm10 is not None:
-            st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
-        else:
-            st.markdown("<h1>No Data Available</h1>", unsafe_allow_html=True)
+        st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
     with col3:
         st.markdown("### Weather Conditions")
         temp = current_data.get('temperature')
