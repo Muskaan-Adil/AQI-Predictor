@@ -87,8 +87,8 @@ def prepare_input_features(city):
 def load_forecast(city):
     forecast = {}
     try:
-        best_model_pm25 = model_registry.get_best_model(name="Karachi_pm25")
-        best_model_pm10 = model_registry.get_best_model(name="Karachi_pm10")
+        best_model_pm25 = model_registry.get_latest_model(name="Karachi_pm25")
+        best_model_pm10 = model_registry.get_latest_model(name="Karachi_pm10")
         
         if best_model_pm25 and best_model_pm10:
             input_features = prepare_input_features(city)
