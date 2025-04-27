@@ -41,8 +41,12 @@ if 'forecasts' not in st.session_state:
     st.session_state.forecasts = {}
 
 # Helper Functions
-def load_cities():
-    return [city['name'] for city in Config.CITIES]
+def load_cities_from_feature_store():
+    # Query the feature store to get unique city names
+    feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
+    city_data = feature_view.select(["city"]).to_pandas()  # Select only the 'city' column
+    unique_cities = city_data["city"].unique()  # Get unique city names
+    return unique_cities.tolist()  # Convert to list and return
 
 def load_feature_view_data(city):
     feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
@@ -120,7 +124,7 @@ def load_forecast(city):
 
 st.sidebar.title("AQI Predictor")
 st.sidebar.markdown("---")
-cities = load_cities()
+cities = load_cities_from_feature_store()
 selected_city = st.sidebar.selectbox("Select City", cities)
 selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
 if st.sidebar.button("🔄 Refresh"):
