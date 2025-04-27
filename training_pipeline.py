@@ -45,13 +45,17 @@ def load_cities() -> List[dict]:
 
 def validate_features(X: pd.DataFrame, target_col: str) -> pd.DataFrame:
     """Clean and validate features."""
+    # Remove target if present
     if target_col in X.columns:
         X = X.drop(columns=[target_col])
+    
+    # Remove duplicates and constants
     X = X.loc[:, ~X.columns.duplicated()]
     constant_cols = X.columns[X.nunique() == 1]
     if not constant_cols.empty:
         logger.warning(f"Removing constant columns: {list(constant_cols)}")
         X = X.drop(columns=constant_cols)
+    
     return X
 
 def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
@@ -63,11 +67,13 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
         if y.isna().all():
             raise ValueError("Invalid target values")
             
+        # Handle missing data
         empty_cols = X.columns[X.isna().all()]
         if not empty_cols.empty:
             logger.warning(f"Dropping empty columns: {list(empty_cols)}")
             X = X.drop(columns=empty_cols)
         
+        # Impute and scale
         imputer = SimpleImputer(strategy='mean')
         X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
         y = y.fillna(y.mean())
@@ -78,10 +84,30 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
         return X, y
     except Exception as e:
         logger.error(f"Preprocessing failed: {e}")
-        return pd.DataFrame(), pd.Series()
+        return None, None
 
-def run_training_pipeline():
-    """Enhanced training pipeline with standardized naming and deployment."""
+def get_training_data(feature_store: FeatureStore,
+                     feature_view_name: str,
+                     target_col: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
+    """Retrieve and prepare training data."""
+    try:
+        fv = feature_store.get_feature_view(feature_view_name, version=1)
+        if not fv:
+            raise ValueError("Feature view not found")
+            
+        training_data = fv.get_training_data(training_dataset_version=1)
+        if not training_data:
+            raise ValueError("No training data")
+        
+        X = validate_features(training_data[0], target_col)
+        y = training_data[1][target_col]
+        return preprocess_data(X, y)
+    except Exception as e:
+        logger.error(f"Data retrieval failed: {e}")
+        return None, None
+
+def run_training_pipeline() -> None:
+    """Enhanced training pipeline with standardized naming and auto-deployment."""
     logger.info("Starting enhanced training pipeline...")
     
     try:
@@ -90,6 +116,7 @@ def run_training_pipeline():
         model_registry = ModelRegistry()
         
         for city in cities:
+            # Standardize city name (lowercase, underscore)
             city_name = city['name'].lower().replace(' ', '_')
             logger.info(f"Processing {city_name}")
             
@@ -101,11 +128,11 @@ def run_training_pipeline():
                 fv_name = f"{city_name}_aqi_features"
                 X, y = get_training_data(feature_store, fv_name, target_col)
                 
-                if X is None or y is None:
-                    logger.warning(f"Skipping {city_name} - {target_col}")
+                if X is None or y is None or X.empty or y.empty:
+                    logger.warning(f"Skipping {city_name} - {target_col} due to data issues")
                     continue
                 
-                # Initialize trainer
+                # Initialize trainer with validation checks
                 trainer = ModelTrainer(
                     target_col=target_col,
                     n_splits=5,
@@ -116,11 +143,11 @@ def run_training_pipeline():
                     'linear': 'linear',
                     'ridge': 'ridge',
                     'lasso': 'lasso',
-                    'random_forest': 'forest',
-                    'gradient_boosting': 'boosting'
+                    'random_forest': 'random_forest',
+                    'gradient_boosting': 'gradient_boosting'
                 }
                 
-                # Run CV
+                # Run cross-validation
                 results = trainer.cross_validate_models(X, y, model_config)
                 best_model = trainer.select_best_model(results)
                 
@@ -128,44 +155,47 @@ def run_training_pipeline():
                     # Standardized model name
                     model_name = f"{city_name}_{target_col}"
                     
+                    # Check for suspiciously good performance
+                    if best_model['metrics']['rmse'] < 0.01:
+                        logger.warning(f"Potentially overfit model: {model_name} with RMSE {best_model['metrics']['rmse']:.4f}")
+                    
                     # Save with comprehensive metrics
                     version = model_registry.save_model(
                         model=best_model['model'].model,
                         name=model_name,
-                        metrics={
-                            'rmse': best_model['metrics']['rmse'],
-                            'mae': best_model['metrics']['mae'],
-                            'r2': best_model['metrics']['r2'],
-                            'rmse_std': best_model['std_dev']['rmse'],
-                            'mae_std': best_model['std_dev']['mae'],
-                            'r2_std': best_model['std_dev']['r2']
-                        },
+                        metrics=best_model['metrics'],
                         tags={
                             'city': city_name,
                             'target': target_col,
                             'model_type': best_model['name'],
-                            'deployable': 'true'
+                            'deployable': 'true',
+                            'cv_folds': str(trainer.n_splits)
                         },
-                        description=f"Best {target_col} model for {city_name}"
+                        description=f"Best {target_col} model for {city_name} (CV RMSE: {best_model['metrics']['rmse']:.4f} ± {best_model['metrics']['rmse_std']:.4f})"
                     )
                     
-                    # Auto-deploy best model
+                    # Auto-deploy if version was saved successfully
                     if version:
-                        deployment = model_registry.deploy_model(
-                            model_name=model_name,
-                            version=version,
-                            deployment_name=f"{model_name}_deployment"
-                        )
-                        logger.info(f"Deployed {model_name} version {version}")
+                        try:
+                            deployment = model_registry.deploy_model(
+                                model_name=model_name,
+                                version=version,
+                                deployment_name=f"{model_name}_deployment"
+                            )
+                            logger.info(f"Deployed {model_name} version {version}")
+                        except Exception as e:
+                            logger.error(f"Deployment failed: {str(e)}")
                     
-                    # Feature importance analysis
+                    # Feature importance analysis for tree-based models
                     if best_model['name'] in ['random_forest', 'gradient_boosting']:
                         try:
                             analyzer = FeatureImportanceAnalyzer(best_model['model'].model, X)
                             analyzer.generate_report()
-                            analyzer.plot_importance(top_n=10)
+                            # Add visualization if available
+                            if hasattr(analyzer, 'plot_importance'):
+                                analyzer.plot_importance(top_n=10)
                         except Exception as e:
-                            logger.error(f"Feature analysis failed: {str(e)}")
+                            logger.error(f"Feature importance analysis failed: {str(e)}")
         
         logger.info("Training pipeline completed successfully")
 
