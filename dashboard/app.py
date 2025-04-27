@@ -2,14 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import os
-import sys
-import hopsworks
 import yaml
+import hopsworks
+import os
 
 # Import project modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
@@ -42,16 +39,16 @@ except Exception as e:
     st.stop()
 
 # Load city names from cities.yaml
-def load_cities_from_yaml():
+def load_cities():
     try:
-        with open('cities.yaml', 'r') as file:
-            cities_data = yaml.safe_load(file)
-            return [city['name'] for city in cities_data]
+        with open("cities.yaml", "r") as file:
+            cities = yaml.safe_load(file)
+            return [city["name"] for city in cities]
     except Exception as e:
         st.error(f"Error loading cities from YAML: {e}")
         return []
 
-# Initialize collectors and model registry
+# Initialize collectors
 data_collector = DataCollector(
     api_key_aqicn=Config.AQICN_API_KEY,
     api_key_openweather=Config.OPENWEATHER_API_KEY
@@ -68,30 +65,24 @@ if 'feature_importances' not in st.session_state:
 
 # Helper Functions
 
-def load_current_data(city):
-    try:
-        city_info = next((c for c in Config.CITIES if c['name'] == city), None)
-        if not city_info:
-            st.error(f"City '{city}' not found in configuration.")
-            return None
-        
-        # Collect data from feature store
-        feature_view = feature_store.get_feature_view("karachi_aqi_features")
-        latest_entry = feature_view.get_features(
-            entity_keys=[city],
-            feature_names=["pm25", "pm10", "temperature", "humidity", "wind_speed"],
-            timestamp_column="timestamp",
-            latest=True
-        ).to_pandas()
+def load_feature_view_data(city):
+    feature_view = feature_store.get_feature_view("karachi_aqi_features")
+    feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]).filter("city == ?", city).to_pandas()
+    return feature_data
 
-        if not latest_entry.empty:
-            st.session_state.current_data[city] = latest_entry.iloc[0].to_dict()
-            return st.session_state.current_data[city]
-        else:
-            st.error(f"No data available for {city} in the feature store.")
-            return None
-    except Exception as e:
-        st.error(f"Error loading data for {city}: {e}")
+def load_current_data(city):
+    city_data = load_feature_view_data(city)
+    if city_data is not None and not city_data.empty:
+        st.session_state.current_data[city] = {
+            'pm25': city_data['pm25'].iloc[-1],
+            'pm10': city_data['pm10'].iloc[-1],
+            'temperature': city_data['temperature'].iloc[-1],
+            'humidity': city_data['humidity'].iloc[-1],
+            'wind_speed': city_data['wind_speed'].iloc[-1]
+        }
+        return st.session_state.current_data[city]
+    else:
+        st.error(f"Failed to collect data for {city}.")
         return None
 
 def prepare_input_features(city):
@@ -140,7 +131,7 @@ def get_feature_importance(city):
 
 st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("---")
-cities = load_cities_from_yaml()
+cities = load_cities()
 selected_city = st.sidebar.selectbox("Select City", cities)
 selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
 if st.sidebar.button("Refresh"):
@@ -150,7 +141,7 @@ if st.sidebar.button("Refresh"):
 
 # ========== Main Layout ==========
 
-st.title("Air Quality Forecast")
+st.title(f"Air Quality Forecast")
 
 if selected_city not in st.session_state.current_data:
     with st.spinner(f"Loading {selected_city} data..."):
@@ -163,7 +154,7 @@ if current:
     with col1:
         st.subheader("Current AQI Levels")
         pollutant_value = current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10')
-        if pollutant_value is not None:
+        if pollutant_value:
             st.metric(label=f"{selected_pollutant} (µg/m³)", value=round(pollutant_value, 1))
         else:
             st.warning("Pollutant data not available.")
@@ -177,7 +168,7 @@ if current:
     with col3:
         st.subheader("Feature Importance")
         feature_importance = get_feature_importance(selected_city)
-        if feature_importance is not None and feature_importance != {}:
+        if feature_importance is not None and not feature_importance == {}:
             st.dataframe(feature_importance)
         else:
             st.info("No feature importance available.")
