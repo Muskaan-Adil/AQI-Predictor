@@ -1,21 +1,20 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import os
 import sys
 import hopsworks
 
-# Ensure the correct configuration is loaded
+# Ensure correct configuration is loaded
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
 
-# Set up Streamlit page configuration
+# Streamlit page config
 st.set_page_config(
     page_title="AQI PREDICTOR DASHBOARD",
     page_icon="🌍",
@@ -23,12 +22,12 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Check for required API keys
+# Check API keys
 if not Config.AQICN_API_KEY or not Config.OPENWEATHER_API_KEY:
-    st.error("API keys are missing. Please set AQICN_API_KEY and OPENWEATHER_API_KEY in your environment.")
+    st.error("API keys missing. Please set AQICN_API_KEY and OPENWEATHER_API_KEY.")
     st.stop()
 
-# Initialize the Hopsworks project and feature store
+# Initialize Hopsworks
 try:
     project = hopsworks.login(
         project=Config.HOPSWORKS_PROJECT_NAME,
@@ -41,14 +40,14 @@ except Exception as e:
     st.error(f"Failed to connect to Hopsworks: {e}")
     st.stop()
 
-# Initialize DataCollector and ModelRegistry with required API keys
+# Initialize collectors
 data_collector = DataCollector(
     api_key_aqicn=Config.AQICN_API_KEY,
     api_key_openweather=Config.OPENWEATHER_API_KEY
 )
 model_registry = ModelRegistry()
 
-# Initialize session state variables
+# Initialize session state
 if 'current_data' not in st.session_state:
     st.session_state.current_data = {}
 if 'forecasts' not in st.session_state:
@@ -56,12 +55,12 @@ if 'forecasts' not in st.session_state:
 if 'feature_importances' not in st.session_state:
     st.session_state.feature_importances = {}
 
+# ========== Functions ==========
+
 def load_cities():
-    """Load list of cities from config."""
     return [city['name'] for city in Config.CITIES]
 
 def load_current_data(city):
-    """Load current AQI data for a city."""
     city_info = next((c for c in Config.CITIES if c['name'] == city), None)
     if not city_info:
         st.error(f"City '{city}' not found in configuration.")
@@ -77,7 +76,6 @@ def load_current_data(city):
             humidity = weather_data.get('main', {}).get('humidity')
             wind_speed = weather_data.get('wind', {}).get('speed')
 
-            # Store extracted data in session state
             st.session_state.current_data[city] = {
                 'pm25': pm25,
                 'pm10': pm10,
@@ -90,113 +88,124 @@ def load_current_data(city):
             st.error(f"Failed to collect data for {city}.")
             return None
     except Exception as e:
-        st.error(f"Failed to load data for {city}: {e}")
+        st.error(f"Error loading data for {city}: {e}")
         return None
 
+def prepare_input_features(city):
+    """Prepare input features for prediction."""
+    current = st.session_state.current_data.get(city)
+    if not current:
+        return None
+    input_features = np.array([
+        current.get('pm25', 0),
+        current.get('pm10', 0),
+        current.get('temperature', 0),
+        current.get('humidity', 0),
+        current.get('wind_speed', 0)
+    ]).reshape(1, -1)
+    return input_features
+
 def load_forecast(city):
-    """Load forecasts for a city."""
     if city not in st.session_state.forecasts:
-        # Load the best model from the registry
         best_model = model_registry.get_best_model(name="air_quality_model")
         if best_model:
-            # Prepare input features for prediction
             input_features = prepare_input_features(city)
-            forecast = best_model.predict(input_features)
-            dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-            st.session_state.forecasts[city] = pd.DataFrame({
-                'date': dates,
-                'pm25': forecast[:, 0],  # Assuming PM2.5 predictions
-                'pm10': forecast[:, 1]   # Assuming PM10 predictions
-            })
+            if input_features is not None:
+                forecast = best_model.predict(input_features)
+                dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
+                st.session_state.forecasts[city] = pd.DataFrame({
+                    'date': dates,
+                    'pm25': forecast[:, 0],
+                    'pm10': forecast[:, 1]
+                })
+            else:
+                st.warning(f"Cannot forecast, missing input features for {city}.")
         else:
-            st.warning(f"No model available for {city}. Using default forecasts.")
+            st.warning(f"No model found. Using default forecasts.")
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
             st.session_state.forecasts[city] = pd.DataFrame({
                 'date': dates,
-                'pm25': [50, 55, 60],  # Default values
-                'pm10': [30, 35, 40]   # Default values
+                'pm25': [50, 55, 60],
+                'pm10': [30, 35, 40]
             })
     return st.session_state.forecasts[city]
 
 def get_feature_importance(city):
-    """Get feature importance for a city."""
     if city not in st.session_state.feature_importances:
         analyzer = FeatureImportanceAnalyzer(model_registry)
-        importance_data = analyzer.analyze(city)  # Define this method elsewhere
+        importance_data = analyzer.analyze(city)
         st.session_state.feature_importances[city] = importance_data
     return st.session_state.feature_importances[city]
 
-def get_aqi_category_pm25(pm25_value):
-    """Get AQI category based on PM2.5 value."""
-    if pm25_value is None:
+def get_aqi_category_pm25(value):
+    if value is None:
         return "Unknown"
-    elif pm25_value <= 12:
+    elif value <= 12:
         return "Good"
-    elif pm25_value <= 35.4:
+    elif value <= 35.4:
         return "Moderate"
-    elif pm25_value <= 55.4:
+    elif value <= 55.4:
         return "Unhealthy for Sensitive Groups"
-    elif pm25_value <= 150.4:
+    elif value <= 150.4:
         return "Unhealthy"
-    elif pm25_value <= 250.4:
+    elif value <= 250.4:
         return "Very Unhealthy"
     else:
         return "Hazardous"
 
-def get_aqi_color_pm25(pm25_value):
-    """Get color for AQI category based on PM2.5 value."""
-    if pm25_value is None:
+def get_aqi_color_pm25(value):
+    if value is None:
         return "#CCCCCC"
-    elif pm25_value <= 12:
+    elif value <= 12:
         return "#00E400"
-    elif pm25_value <= 35.4:
+    elif value <= 35.4:
         return "#FFFF00"
-    elif pm25_value <= 55.4:
+    elif value <= 55.4:
         return "#FF7E00"
-    elif pm25_value <= 150.4:
+    elif value <= 150.4:
         return "#FF0000"
-    elif pm25_value <= 250.4:
+    elif value <= 250.4:
         return "#8F3F97"
     else:
         return "#7E0023"
 
-def get_aqi_category_pm10(pm10_value):
-    """Get AQI category based on PM10 value."""
-    if pm10_value is None:
+def get_aqi_category_pm10(value):
+    if value is None:
         return "Unknown"
-    elif pm10_value <= 54:
+    elif value <= 54:
         return "Good"
-    elif pm10_value <= 154:
+    elif value <= 154:
         return "Moderate"
-    elif pm10_value <= 254:
+    elif value <= 254:
         return "Unhealthy for Sensitive Groups"
-    elif pm10_value <= 354:
+    elif value <= 354:
         return "Unhealthy"
-    elif pm10_value <= 424:
+    elif value <= 424:
         return "Very Unhealthy"
     else:
         return "Hazardous"
 
-def get_aqi_color_pm10(pm10_value):
-    """Get color for AQI category based on PM10 value."""
-    if pm10_value is None:
+def get_aqi_color_pm10(value):
+    if value is None:
         return "#CCCCCC"
-    elif pm10_value <= 54:
+    elif value <= 54:
         return "#00E400"
-    elif pm10_value <= 154:
+    elif value <= 154:
         return "#FFFF00"
-    elif pm10_value <= 254:
+    elif value <= 254:
         return "#FF7E00"
-    elif pm10_value <= 354:
+    elif value <= 354:
         return "#FF0000"
-    elif pm10_value <= 424:
+    elif value <= 424:
         return "#8F3F97"
     else:
         return "#7E0023"
 
-# Sidebar configuration
+# ========== Sidebar ==========
+
 st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("### Select a City")
+
 cities = load_cities()
 selected_city = st.sidebar.selectbox("City", cities)
 
@@ -207,29 +216,33 @@ selected_pollutant = st.sidebar.selectbox(
 
 if st.sidebar.button("Refresh Data"):
     load_current_data(selected_city)
-    if selected_city in st.session_state.forecasts:
-        del st.session_state.forecasts[selected_city]
-    if selected_city in st.session_state.feature_importances:
-        del st.session_state.feature_importances[selected_city]
+    st.session_state.forecasts.pop(selected_city, None)
+    st.session_state.feature_importances.pop(selected_city, None)
 
-# Main content
-st.title(f"Air Quality Prediction for {selected_city}")
+# ========== Main Page ==========
+
+st.title(f"Air Quality Prediction")
 
 if selected_city not in st.session_state.current_data:
     with st.spinner(f"Loading current data for {selected_city}..."):
         load_current_data(selected_city)
 
-current_data = st.session_state.current_data.get(selected_city, {})
+current_data = st.session_state.current_data.get(selected_city)
 
 if current_data:
     col1, col2, col3 = st.columns(3)
+
     with col1:
         st.markdown(f"### Current {selected_pollutant}")
         pollutant_value = current_data.get('pm25') if selected_pollutant == "PM2.5" else current_data.get('pm10')
         category = get_aqi_category_pm25(pollutant_value) if selected_pollutant == "PM2.5" else get_aqi_category_pm10(pollutant_value)
         color = get_aqi_color_pm25(pollutant_value) if selected_pollutant == "PM2.5" else get_aqi_color_pm10(pollutant_value)
-        st.markdown(f"<h1 style='color: {color};'>{pollutant_value:.1f}</h1>", unsafe_allow_html=True)
+        if pollutant_value is not None:
+            st.markdown(f"<h1 style='color: {color};'>{pollutant_value:.1f}</h1>", unsafe_allow_html=True)
+        else:
+            st.markdown("<h1 style='color: #CCCCCC;'>N/A</h1>", unsafe_allow_html=True)
         st.markdown(f"**Category**: {category}")
+
     with col2:
         st.markdown("### Weather Conditions")
         temp = current_data.get('temperature')
@@ -245,23 +258,26 @@ if current_data:
     with col3:
         st.markdown("### Feature Importance")
         feature_importance = get_feature_importance(selected_city)
-        st.write(feature_importance)
+        if feature_importance is not None:
+            st.dataframe(feature_importance)
 
     st.markdown("---")
 
-    # Forecast section
     forecast_data = load_forecast(selected_city)
+
     st.subheader("Forecast for Next 3 Days")
     st.dataframe(forecast_data)
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=forecast_data['date'],
         y=forecast_data['pm25'] if selected_pollutant == "PM2.5" else forecast_data['pm10'],
         mode='lines+markers',
         name=selected_pollutant,
-        line=dict(width=3),
-        marker=dict(color=forecast_data['pm25'] if selected_pollutant == "PM2.5" else forecast_data['pm10'])
+        line=dict(width=3)
     ))
-    st.plotly_chart(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
 else:
     st.error(f"No data available for {selected_city}.")
+
