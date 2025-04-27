@@ -61,28 +61,29 @@ def load_cities():
     return [city['name'] for city in Config.CITIES]
 
 def load_current_data(city):
-    city_info = next((c for c in Config.CITIES if c['name'] == city), None)
-    if not city_info:
-        st.error(f"City '{city}' not found in configuration.")
-        return None
     try:
-        raw_data = data_collector.collect_data(city_info)
-        if raw_data:
-            aqi_data = raw_data.get('aqi', {})
-            weather_data = raw_data.get('weather', {})
+        feature_view = feature_store.get_feature_view(
+            name="air_quality_feature_view",
+            version=1
+        )
+        data = feature_view.read()
+        city_data = data[data['city'] == city].sort_values('event_time', ascending=False).head(1)
+        
+        if not city_data.empty:
+            latest = city_data.iloc[0]
             st.session_state.current_data[city] = {
-                'pm25': aqi_data.get(data_collector.default_parameter),
-                'pm10': aqi_data.get('pm10'),
-                'temperature': weather_data.get('main', {}).get('temp'),
-                'humidity': weather_data.get('main', {}).get('humidity'),
-                'wind_speed': weather_data.get('wind', {}).get('speed')
+                'pm25': latest.get('pm25', np.nan),
+                'pm10': latest.get('pm10', np.nan),
+                'temperature': latest.get('temperature', np.nan),
+                'humidity': latest.get('humidity', np.nan),
+                'wind_speed': latest.get('wind_speed', np.nan)
             }
             return st.session_state.current_data[city]
         else:
-            st.error(f"Failed to collect data for {city}.")
+            st.warning(f"No data found in Feature Store for {city}.")
             return None
     except Exception as e:
-        st.error(f"Error loading data for {city}: {e}")
+        st.error(f"Error loading Feature Store data: {e}")
         return None
 
 def prepare_input_features(city):
@@ -129,11 +130,11 @@ def get_feature_importance(city):
 
 # ========== Sidebar ==========
 
-st.sidebar.title("Pearls AQI Predictor")
+st.sidebar.title("🌍 Pearls AQI Predictor")
 st.sidebar.markdown("---")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("🏠 Select City", cities)
-selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
+selected_pollutant = st.sidebar.radio("🧪 Select Pollutant", ["PM2.5", "PM10"])
 if st.sidebar.button("🔄 Refresh"):
     load_current_data(selected_city)
     st.session_state.forecasts.pop(selected_city, None)
@@ -150,23 +151,23 @@ if selected_city not in st.session_state.current_data:
 current = st.session_state.current_data.get(selected_city)
 
 if current:
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.subheader("Current AQI Levels")
+        st.subheader("🧪 Current AQI Levels")
         pollutant_value = current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10')
-        if pollutant_value:
+        if not np.isnan(pollutant_value):
             st.metric(label=f"{selected_pollutant} (µg/m³)", value=round(pollutant_value, 1))
         else:
             st.warning("Pollutant data not available.")
 
     with col2:
-        st.subheader("Weather Info")
+        st.subheader("🌡️ Weather Info")
         st.metric("Temperature (°C)", round(current.get('temperature', 0), 1))
         st.metric("Humidity (%)", current.get('humidity', 0))
         st.metric("Wind Speed (m/s)", round(current.get('wind_speed', 0), 1))
 
     with col3:
-        st.subheader("Feature Importance")
+        st.subheader("📊 Feature Importance")
         feature_importance = get_feature_importance(selected_city)
         if feature_importance is not None and not feature_importance == {}:
             st.dataframe(feature_importance)
@@ -178,7 +179,7 @@ if current:
     forecast = load_forecast(selected_city)
 
     if forecast is not None:
-        st.subheader("3-Day Forecast")
+        st.subheader("📈 3-Day Forecast")
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -186,14 +187,16 @@ if current:
             y=forecast['pm25'] if selected_pollutant == "PM2.5" else forecast['pm10'],
             mode='lines+markers',
             name=f"Forecasted {selected_pollutant}",
-            line=dict(color="#636EFA", width=3)
+            line=dict(color="#00BFC4", width=3)
         ))
         fig.update_layout(
+            title=f"{selected_pollutant} Forecast for {selected_city}",
             xaxis_title="Date",
             yaxis_title=f"{selected_pollutant} (µg/m³)",
-            plot_bgcolor="#f9f9f9",
-            paper_bgcolor="#f9f9f9",
-            font=dict(size=14)
+            plot_bgcolor="#ffffff",
+            paper_bgcolor="#ffffff",
+            font=dict(size=14),
+            margin=dict(l=20, r=20, t=40, b=20)
         )
         st.plotly_chart(fig, use_container_width=True)
 
