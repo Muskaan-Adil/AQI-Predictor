@@ -13,4 +13,4 @@ shap>=0.44.0,<1.0.0
 hopsworks>=4.2.2,<5.0.0
 PyYAML>=6.0.1,<7.0.0
 confluent-kafka>=2.3.0,<3.0.0
-protobuf==3.20.3  # Required for compatibility
+protobuf>=3.20.3,<5.0.0  # Required for compatibility
