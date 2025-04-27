@@ -1,23 +1,22 @@
+import sys
+from pathlib import Path
+
+# Add project root to Python path (MUST BE FIRST)
+sys.path.append(str(Path(__file__).parent.parent))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import os
-import sys
 import hopsworks
 import plotly.graph_objects as go
 import shap
 from utils.config import Config
-from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
-from pathlib import Path
-
-# Add project root to Python path
-sys.path.append(str(Path(__file__).parent.parent))
 
 # Streamlit page config
 st.set_page_config(
-    page_title="AQI Predictor Dashboard",
+    page_title=Config.DASHBOARD_TITLE,
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -31,12 +30,12 @@ try:
         port=443
     )
     feature_store = project.get_feature_store()
-    st.write("Connected to Hopsworks successfully.")
+    st.success("✅ Connected to Hopsworks")
 except Exception as e:
-    st.error(f"Failed to connect to Hopsworks: {e}")
+    st.error(f"❌ Hopsworks connection failed: {str(e)}")
     st.stop()
 
-# Initialize collectors
+# Initialize components
 model_registry = ModelRegistry()
 
 # Session states
@@ -45,106 +44,56 @@ if 'current_data' not in st.session_state:
 if 'forecasts' not in st.session_state:
     st.session_state.forecasts = {}
 
-# Helper Functions
-def load_cities_from_feature_store():
-    # Query the feature store to get unique city names
+def load_cities():
+    """Load cities from feature store with YAML fallback"""
     try:
         feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
-        city_data = feature_view.select(["city"]).to_pandas()  # Select only the 'city' column
-        unique_cities = city_data["city"].unique()  # Get unique city names
-        st.write(f"Loaded cities: {unique_cities}")
-        return unique_cities.tolist()  # Convert to list and return
+        cities = feature_view.select(["city"]).to_pandas()["city"].unique().tolist()
+        return cities if cities else [c['name'] for c in Config.CITIES]
     except Exception as e:
-        st.error(f"Error loading cities from feature store: {e}")
-        return []
-
-def load_feature_view_data(city):
-    try:
-        feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
-        feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]) \
-                                  .filter("city == ?", city).to_pandas()
-        st.write(f"Loaded feature data for {city}: {feature_data.head()}")
-        return feature_data
-    except Exception as e:
-        st.error(f"Error loading feature data for {city}: {e}")
-        return pd.DataFrame()
-
-def load_current_data(city):
-    try:
-        feature_data = load_feature_view_data(city)
-        if not feature_data.empty:
-            st.session_state.current_data[city] = {
-                'pm25': feature_data['pm25'].iloc[-1],
-                'pm10': feature_data['pm10'].iloc[-1],
-                'temperature': feature_data['temperature'].iloc[-1],
-                'humidity': feature_data['humidity'].iloc[-1],
-                'wind_speed': feature_data['wind_speed'].iloc[-1]
-            }
-            return st.session_state.current_data[city]
-        else:
-            st.error(f"No feature data available for {city}.")
-            return None
-    except Exception as e:
-        st.error(f"Error loading data for {city}: {e}")
-        return None
-
-def prepare_input_features(city):
-    current = st.session_state.current_data.get(city)
-    if not current:
-        return None
-    input_features = np.array([  
-        current.get('pm25', 0),
-        current.get('pm10', 0),
-        current.get('temperature', 0),
-        current.get('humidity', 0),
-        current.get('wind_speed', 0)
-    ]).reshape(1, -1)
-    return input_features
+        st.warning(f"Using YAML cities (Feature Store error: {str(e)})")
+        return [c['name'] for c in Config.CITIES]
 
 def load_forecast(city):
-    forecast = {}
     try:
-        best_model_pm25 = model_registry.get_latest_model(name="Karachi_pm25")
-        best_model_pm10 = model_registry.get_latest_model(name="Karachi_pm10")
+        # Get models
+        model_pm25 = model_registry.get_latest_model("Karachi_pm25")
+        model_pm10 = model_registry.get_latest_model("Karachi_pm10")
         
-        if best_model_pm25 and best_model_pm10:
-            input_features = prepare_input_features(city)
-            if input_features is not None:
-                forecast_pm25 = best_model_pm25.predict(input_features)
-                forecast_pm10 = best_model_pm10.predict(input_features)
-                dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-                forecast = pd.DataFrame({
-                    'date': dates,
-                    'pm25': forecast_pm25[:, 0],
-                    'pm10': forecast_pm10[:, 0]
-                })
-                
-                # SHAP Explanation
-                explainer_pm25 = shap.Explainer(best_model_pm25)
-                shap_values_pm25 = explainer_pm25(input_features)
-                
-                # Display SHAP Summary Plot
-                st.subheader(f"SHAP Explanation for {selected_pollutant} Prediction")
-                shap.summary_plot(shap_values_pm25, input_features)
-                
-            else:
-                st.warning("Missing input features.")
-        else:
-            st.warning("No models found for prediction.")
+        # Prepare input
+        current = st.session_state.current_data.get(city)
+        if not current: return None
+            
+        features = np.array([
+            current['pm25'], current['pm10'],
+            current['temperature'], current['humidity'],
+            current['wind_speed']
+        ]).reshape(1, -1)
+
+        # Generate forecast
+        dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") 
+                for i in range(1, 4)]
+        
+        return pd.DataFrame({
+            'date': dates,
+            'pm25': model_pm25.predict(features)[:, 0],
+            'pm10': model_pm10.predict(features)[:, 0]
+        })
+
     except Exception as e:
-        st.error(f"Error generating forecast: {e}")
-    return forecast
+        st.error(f"Forecast error: {str(e)}")
+        return None
 
-# ========== Sidebar ==========
-
+# ========== UI Components ==========
 st.sidebar.title("AQI Predictor")
-st.sidebar.markdown("---")
-cities = load_cities_from_feature_store()
-selected_city = st.sidebar.selectbox("Select City", cities)
-selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
-if st.sidebar.button("🔄 Refresh"):
-    load_current_data(selected_city)
-    st.session_state.forecasts.pop(selected_city, None)
+cities = load_cities()
+selected_city = st.sidebar.selectbox("City", cities)
+selected_pollutant = st.sidebar.radio("Pollutant", ["PM2.5", "PM10"])
+
+# Main display
+st.title(f"Air Quality: {selected_city}")
+if st.sidebar.button("🔄 Refresh Data"):
+    st.session_state.current_data.pop(selected_city, None)
 
 # ========== Main Layout ==========
 
