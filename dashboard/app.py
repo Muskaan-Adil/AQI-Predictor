@@ -185,12 +185,19 @@ if current_data:
     with col1:
         st.markdown("### Current PM2.5")
         pm25 = current_data.get('pm25')
-        st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
-        st.markdown(f"**Category**: {get_aqi_category(pm25)}")
+        if pm25 is not None:
+            st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
+            st.markdown(f"**Category**: {get_aqi_category(pm25)}")
+        else:
+            st.markdown("<h1 style='color: #CCCCCC;'>No Data Available</h1>", unsafe_allow_html=True)
+            st.markdown("**Category**: Unknown")
     with col2:
         st.markdown("### Current PM10")
         pm10 = current_data.get('pm10')
-        st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
+        if pm10 is not None:
+            st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
+        else:
+            st.markdown("<h1>No Data Available</h1>", unsafe_allow_html=True)
     with col3:
         st.markdown("### Weather Conditions")
         temp = current_data.get('temperature')
@@ -292,7 +299,7 @@ else:
 
 # Health impact section
 st.markdown("## Health Impact")
-st.markdown("""
+st.markdown(""" 
 ### Understanding PM2.5 and PM10 Health Effects
 **PM2.5** (fine particles ≤ 2.5μm):
 - Can penetrate deep into the lungs and bloodstream
