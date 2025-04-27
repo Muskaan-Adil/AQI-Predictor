@@ -35,11 +35,19 @@ class Config:
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             yaml_path = os.path.join(base_dir, 'cities.yaml')
             
+            logger.info(f"Attempting to load cities from YAML file at: {yaml_path}")
+
             if os.path.exists(yaml_path):
                 with open(yaml_path, 'r') as f:
                     data = yaml.safe_load(f)
                     if data and 'cities' in data:
+                        logger.info(f"Loaded cities: {data['cities']}")
                         return data['cities']
+                    else:
+                        logger.error(f"Cities key not found in YAML file: {yaml_path}")
+            else:
+                logger.error(f"YAML file does not exist: {yaml_path}")
+                
         except Exception as e:
             logger.error(f"Error loading cities from YAML: {e}")
         
