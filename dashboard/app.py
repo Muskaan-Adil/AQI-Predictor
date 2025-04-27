@@ -62,35 +62,35 @@ def load_cities():
 
 def load_current_data(city):
     try:
-        feature_view = feature_store.get_feature_view(
-            name="air_quality_feature_view",
-            version=1
-        )
-        data = feature_view.read()
-        city_data = data[data['city'] == city].sort_values('event_time', ascending=False).head(1)
+        # Fetch the feature view for the specified city
+        feature_view = feature_store.get_feature_view(name="karachi_aqi_features")
         
-        if not city_data.empty:
-            latest = city_data.iloc[0]
+        # Retrieve the most recent data (latest row)
+        feature_data = feature_view.get_data().tail(1)
+        
+        # Check if data is available
+        if not feature_data.empty:
+            aqi_data = feature_data.iloc[0]
             st.session_state.current_data[city] = {
-                'pm25': latest.get('pm25', np.nan),
-                'pm10': latest.get('pm10', np.nan),
-                'temperature': latest.get('temperature', np.nan),
-                'humidity': latest.get('humidity', np.nan),
-                'wind_speed': latest.get('wind_speed', np.nan)
+                'pm25': aqi_data.get('pm25', None),
+                'pm10': aqi_data.get('pm10', None),
+                'temperature': aqi_data.get('temperature', None),
+                'humidity': aqi_data.get('humidity', None),
+                'wind_speed': aqi_data.get('wind_speed', None)
             }
             return st.session_state.current_data[city]
         else:
-            st.warning(f"No data found in Feature Store for {city}.")
+            st.error(f"No data found for {city} in the feature store.")
             return None
     except Exception as e:
-        st.error(f"Error loading Feature Store data: {e}")
+        st.error(f"Error loading data for {city}: {e}")
         return None
 
 def prepare_input_features(city):
     current = st.session_state.current_data.get(city)
     if not current:
         return None
-    input_features = np.array([
+    input_features = np.array([ 
         current.get('pm25', 0),
         current.get('pm10', 0),
         current.get('temperature', 0),
@@ -130,11 +130,11 @@ def get_feature_importance(city):
 
 # ========== Sidebar ==========
 
-st.sidebar.title("🌍 Pearls AQI Predictor")
+st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("---")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("🏠 Select City", cities)
-selected_pollutant = st.sidebar.radio("🧪 Select Pollutant", ["PM2.5", "PM10"])
+selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
 if st.sidebar.button("🔄 Refresh"):
     load_current_data(selected_city)
     st.session_state.forecasts.pop(selected_city, None)
@@ -151,23 +151,23 @@ if selected_city not in st.session_state.current_data:
 current = st.session_state.current_data.get(selected_city)
 
 if current:
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        st.subheader("🧪 Current AQI Levels")
+        st.subheader("Current AQI Levels")
         pollutant_value = current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10')
-        if not np.isnan(pollutant_value):
+        if pollutant_value is not None and not np.isnan(pollutant_value):
             st.metric(label=f"{selected_pollutant} (µg/m³)", value=round(pollutant_value, 1))
         else:
             st.warning("Pollutant data not available.")
 
     with col2:
-        st.subheader("🌡️ Weather Info")
+        st.subheader("Weather Info")
         st.metric("Temperature (°C)", round(current.get('temperature', 0), 1))
         st.metric("Humidity (%)", current.get('humidity', 0))
         st.metric("Wind Speed (m/s)", round(current.get('wind_speed', 0), 1))
 
     with col3:
-        st.subheader("📊 Feature Importance")
+        st.subheader("Feature Importance")
         feature_importance = get_feature_importance(selected_city)
         if feature_importance is not None and not feature_importance == {}:
             st.dataframe(feature_importance)
@@ -179,7 +179,7 @@ if current:
     forecast = load_forecast(selected_city)
 
     if forecast is not None:
-        st.subheader("📈 3-Day Forecast")
+        st.subheader("3-Day Forecast")
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -187,16 +187,14 @@ if current:
             y=forecast['pm25'] if selected_pollutant == "PM2.5" else forecast['pm10'],
             mode='lines+markers',
             name=f"Forecasted {selected_pollutant}",
-            line=dict(color="#00BFC4", width=3)
+            line=dict(color="#636EFA", width=3)
         ))
         fig.update_layout(
-            title=f"{selected_pollutant} Forecast for {selected_city}",
             xaxis_title="Date",
             yaxis_title=f"{selected_pollutant} (µg/m³)",
-            plot_bgcolor="#ffffff",
-            paper_bgcolor="#ffffff",
-            font=dict(size=14),
-            margin=dict(l=20, r=20, t=40, b=20)
+            plot_bgcolor="#f9f9f9",
+            paper_bgcolor="#f9f9f9",
+            font=dict(size=14)
         )
         st.plotly_chart(fig, use_container_width=True)
 
