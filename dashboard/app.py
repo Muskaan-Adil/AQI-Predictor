@@ -27,6 +27,7 @@ try:
         port=443
     )
     feature_store = project.get_feature_store()
+    st.write("Connected to Hopsworks successfully.")
 except Exception as e:
     st.error(f"Failed to connect to Hopsworks: {e}")
     st.stop()
@@ -43,16 +44,26 @@ if 'forecasts' not in st.session_state:
 # Helper Functions
 def load_cities_from_feature_store():
     # Query the feature store to get unique city names
-    feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
-    city_data = feature_view.select(["city"]).to_pandas()  # Select only the 'city' column
-    unique_cities = city_data["city"].unique()  # Get unique city names
-    return unique_cities.tolist()  # Convert to list and return
+    try:
+        feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
+        city_data = feature_view.select(["city"]).to_pandas()  # Select only the 'city' column
+        unique_cities = city_data["city"].unique()  # Get unique city names
+        st.write(f"Loaded cities: {unique_cities}")
+        return unique_cities.tolist()  # Convert to list and return
+    except Exception as e:
+        st.error(f"Error loading cities from feature store: {e}")
+        return []
 
 def load_feature_view_data(city):
-    feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
-    feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]) \
-                              .filter("city == ?", city).to_pandas()
-    return feature_data
+    try:
+        feature_view = feature_store.get_feature_view(name="karachi_aqi_features", version=1)
+        feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]) \
+                                  .filter("city == ?", city).to_pandas()
+        st.write(f"Loaded feature data for {city}: {feature_data.head()}")
+        return feature_data
+    except Exception as e:
+        st.error(f"Error loading feature data for {city}: {e}")
+        return pd.DataFrame()
 
 def load_current_data(city):
     try:
