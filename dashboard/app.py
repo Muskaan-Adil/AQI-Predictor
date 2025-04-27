@@ -66,8 +66,22 @@ def load_current_data(city):
         return None
     try:
         data = data_collector.collect_data(city_info)
-        st.session_state.current_data[city] = data
-        return data
+        pm25 = data.get('aqi', {}).get(self.default_parameter)
+        pm10 = data.get('aqi', {}).get('pm10')
+        weather = data.get('weather', {})
+        temperature = weather.get('main', {}).get('temp')
+        humidity = weather.get('main', {}).get('humidity')
+        wind_speed = weather.get('wind', {}).get('speed')
+
+        # Store extracted data in session state
+        st.session_state.current_data[city] = {
+            'pm25': pm25,
+            'pm10': pm10,
+            'temperature': temperature,
+            'humidity': humidity,
+            'wind_speed': wind_speed
+        }
+        return st.session_state.current_data[city]
     except Exception as e:
         st.error(f"Failed to load data for {city}: {e}")
         return None
