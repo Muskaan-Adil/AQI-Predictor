@@ -93,7 +93,7 @@ def load_current_data(city):
         st.error(f"Failed to load data for {city}: {e}")
         return None
 
-def load_forecast(city):
+def load_forecast(city, pollutant):
     """Load forecasts for a city."""
     if city not in st.session_state.forecasts:
         # Load the best model from the registry
@@ -103,19 +103,29 @@ def load_forecast(city):
             input_features = prepare_input_features(city)
             forecast = best_model.predict(input_features)
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-            st.session_state.forecasts[city] = pd.DataFrame({
-                'date': dates,
-                'pm25': forecast[:, 0],  # Assuming PM2.5 predictions
-                'pm10': forecast[:, 1]   # Assuming PM10 predictions
-            })
+            if pollutant == "PM2.5":
+                st.session_state.forecasts[city] = pd.DataFrame({
+                    'date': dates,
+                    'pm25': forecast[:, 0],  # PM2.5 predictions
+                })
+            else:  # PM10
+                st.session_state.forecasts[city] = pd.DataFrame({
+                    'date': dates,
+                    'pm10': forecast[:, 1],  # PM10 predictions
+                })
         else:
             st.warning(f"No model available for {city}. Using default forecasts.")
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-            st.session_state.forecasts[city] = pd.DataFrame({
-                'date': dates,
-                'pm25': [50, 55, 60],  # Default values
-                'pm10': [30, 35, 40]   # Default values
-            })
+            if pollutant == "PM2.5":
+                st.session_state.forecasts[city] = pd.DataFrame({
+                    'date': dates,
+                    'pm25': [50, 55, 60],  # Default PM2.5 values
+                })
+            else:  # PM10
+                st.session_state.forecasts[city] = pd.DataFrame({
+                    'date': dates,
+                    'pm10': [30, 35, 40],  # Default PM10 values
+                })
     return st.session_state.forecasts[city]
 
 def get_feature_importance(city):
@@ -166,6 +176,9 @@ st.sidebar.markdown("### Select a City")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("City", cities)
 
+# Dropdown for PM2.5 or PM10 prediction
+selected_pollutant = st.sidebar.selectbox("Select Pollutant", ["PM2.5", "PM10"])
+
 if st.sidebar.button("Refresh Data"):
     load_current_data(selected_city)
     if selected_city in st.session_state.forecasts:
@@ -174,7 +187,7 @@ if st.sidebar.button("Refresh Data"):
         del st.session_state.feature_importances[selected_city]
 
 # Main content
-st.title(f"Air Quality Prediction for {selected_city}")
+st.title(f"Air Quality Prediction for {selected_city} - {selected_pollutant} Forecast")
 
 if selected_city not in st.session_state.current_data:
     with st.spinner(f"Loading current data for {selected_city}..."):
@@ -185,10 +198,10 @@ current_data = st.session_state.current_data.get(selected_city, {})
 if current_data:
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("### Current PM2.5")
-        pm25 = current_data.get('pm25')
-        st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
-        st.markdown(f"**Category**: {get_aqi_category(pm25)}")
+        st.markdown(f"### Current {selected_pollutant}")
+        pollutant_value = current_data.get('pm25') if selected_pollutant == "PM2.5" else current_data.get('pm10')
+        st.markdown(f"<h1 style='color: {get_aqi_color(pollutant_value)};'>{pollutant_value:.1f}</h1>", unsafe_allow_html=True)
+        st.markdown(f"**Category**: {get_aqi_category(pollutant_value)}")
     with col2:
         st.markdown("### Current PM10")
         pm10 = current_data.get('pm10')
@@ -208,30 +221,23 @@ else:
     st.warning(f"No data available for {selected_city}. Try refreshing.")
 
 # Forecast section
-st.markdown("## 3-Day Forecast")
-forecast_data = load_forecast(selected_city)
+st.markdown(f"## 3-Day {selected_pollutant} Forecast")
+forecast_data = load_forecast(selected_city, selected_pollutant)
 if not forecast_data.empty:
     fig = go.Figure()
-    forecast_data['pm25_color'] = forecast_data['pm25'].apply(get_aqi_color)
+    forecast_data['pollutant_color'] = forecast_data[selected_pollutant].apply(get_aqi_color)
     fig.add_trace(go.Scatter(
         x=forecast_data['date'],
-        y=forecast_data['pm25'],
+        y=forecast_data[selected_pollutant],
         mode='lines+markers',
-        name='PM2.5',
+        name=selected_pollutant,
         line=dict(width=3),
-        marker=dict(color=forecast_data['pm25_color'])
-    ))
-    fig.add_trace(go.Scatter(
-        x=forecast_data['date'],
-        y=forecast_data['pm10'],
-        mode='lines+markers',
-        name='PM10',
-        line=dict(color='#33A1FF', width=3)
+        marker=dict(color=forecast_data['pollutant_color'])
     ))
     fig.update_layout(
-        title='Predicted Air Quality',
+        title=f'Predicted {selected_pollutant} Levels',
         xaxis_title='Date',
-        yaxis_title='Concentration (μg/m³)',
+        yaxis_title=f'{selected_pollutant} Concentration (μg/m³)',
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -243,13 +249,11 @@ if not forecast_data.empty:
         margin=dict(l=20, r=20, t=50, b=20),
     )
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown("### Detailed Forecast Values")
+    st.markdown(f"### Detailed {selected_pollutant} Forecast Values")
     forecast_display = forecast_data.copy()
-    forecast_display['PM2.5 Category'] = forecast_display['pm25'].apply(get_aqi_category)
     forecast_display = forecast_display.rename(columns={
         'date': 'Date',
-        'pm25': 'PM2.5 (μg/m³)',
-        'pm10': 'PM10 (μg/m³)'
+        selected_pollutant: f'{selected_pollutant} (μg/m³)'
     })
     st.dataframe(forecast_display)
 else:
@@ -291,25 +295,3 @@ if not importance_data.empty:
         st.markdown(feature_explanations[top_feature])
 else:
     st.warning("Feature importance data is not available.")
-
-# Health impact section
-st.markdown("## Health Impact")
-st.markdown(""" 
-### Understanding PM2.5 and PM10 Health Effects
-**PM2.5** (fine particles ≤ 2.5μm):
-- Can penetrate deep into the lungs and bloodstream
-- Associated with respiratory and cardiovascular issues
-- Long-term exposure linked to reduced lung function and life expectancy
-**PM10** (particles ≤ 10μm):
-- Can enter the respiratory system
-- May cause coughing, wheezing, and asthma attacks
-- Can irritate eyes, nose, and throat
-### Protective Measures:
-- Stay indoors during high pollution days
-- Use air purifiers with HEPA filters
-- Wear N95 masks when outdoors during poor air quality
-- Stay hydrated and maintain good ventilation
-""")
-
-st.markdown("---")
-st.markdown("Powered by Pearls AQI Predictor | Data updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
