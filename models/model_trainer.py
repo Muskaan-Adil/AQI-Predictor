@@ -26,18 +26,30 @@ class ModelTrainer:
         self.model_metrics = {}
         self.feature_importances = {}
         self.cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    
+    def _initialize_models(self, target_col):
+        """Initialize models with standardized naming."""
+        return {
+            'linear': LinearModel(name="linear", target_col=target_col),
+            'ridge': LinearModel(name="ridge", target_col=target_col, model_type='ridge'),
+            'lasso': LinearModel(name="lasso", target_col=target_col, model_type='lasso', max_iter=5000),
+            'random_forest': ForestModel(name="random_forest", target_col=target_col),
+            'gradient_boosting': BoostingModel(name="gradient_boosting", target_col=target_col),
+            'sarima': TimeSeriesModel(name="sarima", target_col=target_col),
+            'neural_net': NeuralNetModel(name="neural_net", target_col=target_col)
+        }
+
 
     def _log_metrics(self, name, metrics):
-        """Enhanced metrics logging."""
+        """Enhanced metrics logging with all key metrics."""
         logger.info(
-            f"{name} Results - "
-            f"RMSE: {metrics['rmse']:.4f}, "
-            f"MAE: {metrics['mae']:.4f}, "
-            f"R²: {metrics['r2']:.4f}"
+            f"{name} - RMSE: {metrics['rmse']:.4f} ± {metrics.get('rmse_std', 0):.4f}, "
+            f"MAE: {metrics['mae']:.4f} ± {metrics.get('mae_std', 0):.4f}, "
+            f"R²: {metrics['r2']:.4f} ± {metrics.get('r2_std', 0):.4f}"
         )
 
     def cross_validate_models(self, X, y, models):
-        """Enhanced CV with full metrics tracking."""
+        """Enhanced CV with full metrics tracking and standard deviation."""
         results = {}
         for name, model_type in models.items():
             try:
@@ -56,34 +68,37 @@ class ModelTrainer:
                     for metric in cv_scores:
                         cv_scores[metric].append(metrics[metric])
                     
-                    logger.debug(f"Fold {fold}: {metrics}")
+                    logger.debug(f"Fold {fold} {name} metrics: {metrics}")
 
-                # Store averaged metrics
+                # Calculate mean and std of metrics
+                avg_metrics = {k: np.mean(v) for k, v in cv_scores.items()}
+                std_metrics = {k: np.std(v) for k, v in cv_scores.items()}
+                
                 results[name] = {
                     'model': model,
-                    'metrics': {k: np.mean(v) for k, v in cv_scores.items()},
-                    'cv_scores': cv_scores,
-                    'std_dev': {k: np.std(v) for k, v in cv_scores.items()}
+                    'metrics': {**avg_metrics, **{f"{k}_std": v for k, v in std_metrics.items()}},
+                    'cv_scores': cv_scores
                 }
                 self._log_metrics(name, results[name]['metrics'])
                 
             except Exception as e:
                 logger.error(f"CV failed for {name}: {str(e)}")
+                results[name] = None
         return results
 
     def select_best_model(self, results):
         """Select best model with comprehensive metrics."""
-        if not results:
+        valid_results = {k: v for k, v in results.items() if v is not None}
+        if not valid_results:
             return None
             
-        best_name = min(results, key=lambda k: results[k]['metrics']['rmse'])
-        best = results[best_name]
+        best_name = min(valid_results, key=lambda k: valid_results[k]['metrics']['rmse'])
+        best = valid_results[best_name]
         
         return {
             'name': best_name,
             'model': best['model'],
             'metrics': best['metrics'],
-            'std_dev': best['std_dev'],
             'cv_scores': best['cv_scores']
         }
 
