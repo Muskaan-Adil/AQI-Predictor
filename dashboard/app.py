@@ -9,12 +9,12 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.utils.config import Config
-from src.data_collection.data_collector import DataCollector
-from src.feature_engineering.feature_generator import FeatureGenerator
-from src.feature_engineering.feature_store import FeatureStore
-from src.models.model_registry import ModelRegistry
-from src.evaluation.feature_importance import FeatureImportanceAnalyzer
+from utils.config import Config
+from data_collection.data_collector import DataCollector
+from feature_engineering.feature_generator import FeatureGenerator
+from feature_engineering.feature_store import FeatureStore
+from models.model_registry import ModelRegistry
+from evaluation.feature_importance import FeatureImportanceAnalyzer
 
 st.set_page_config(
     page_title=Config.DASHBOARD_TITLE,
