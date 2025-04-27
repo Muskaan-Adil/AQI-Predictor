@@ -93,7 +93,7 @@ def load_current_data(city):
         st.error(f"Failed to load data for {city}: {e}")
         return None
 
-def load_forecast(city, pollutant):
+def load_forecast(city):
     """Load forecasts for a city."""
     if city not in st.session_state.forecasts:
         # Load the best model from the registry
@@ -103,29 +103,19 @@ def load_forecast(city, pollutant):
             input_features = prepare_input_features(city)
             forecast = best_model.predict(input_features)
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-            if pollutant == "PM2.5":
-                st.session_state.forecasts[city] = pd.DataFrame({
-                    'date': dates,
-                    'pm25': forecast[:, 0],  # PM2.5 predictions
-                })
-            else:  # PM10
-                st.session_state.forecasts[city] = pd.DataFrame({
-                    'date': dates,
-                    'pm10': forecast[:, 1],  # PM10 predictions
-                })
+            st.session_state.forecasts[city] = pd.DataFrame({
+                'date': dates,
+                'pm25': forecast[:, 0],  # Assuming PM2.5 predictions
+                'pm10': forecast[:, 1]   # Assuming PM10 predictions
+            })
         else:
             st.warning(f"No model available for {city}. Using default forecasts.")
             dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
-            if pollutant == "PM2.5":
-                st.session_state.forecasts[city] = pd.DataFrame({
-                    'date': dates,
-                    'pm25': [50, 55, 60],  # Default PM2.5 values
-                })
-            else:  # PM10
-                st.session_state.forecasts[city] = pd.DataFrame({
-                    'date': dates,
-                    'pm10': [30, 35, 40],  # Default PM10 values
-                })
+            st.session_state.forecasts[city] = pd.DataFrame({
+                'date': dates,
+                'pm25': [50, 55, 60],  # Default values
+                'pm10': [30, 35, 40]   # Default values
+            })
     return st.session_state.forecasts[city]
 
 def get_feature_importance(city):
@@ -136,7 +126,7 @@ def get_feature_importance(city):
         st.session_state.feature_importances[city] = importance_data
     return st.session_state.feature_importances[city]
 
-def get_aqi_category(pm25_value):
+def get_aqi_category_pm25(pm25_value):
     """Get AQI category based on PM2.5 value."""
     if pm25_value is None:
         return "Unknown"
@@ -153,7 +143,7 @@ def get_aqi_category(pm25_value):
     else:
         return "Hazardous"
 
-def get_aqi_color(pm25_value):
+def get_aqi_color_pm25(pm25_value):
     """Get color for AQI category based on PM2.5 value."""
     if pm25_value is None:
         return "#CCCCCC"
@@ -170,14 +160,50 @@ def get_aqi_color(pm25_value):
     else:
         return "#7E0023"
 
+def get_aqi_category_pm10(pm10_value):
+    """Get AQI category based on PM10 value."""
+    if pm10_value is None:
+        return "Unknown"
+    elif pm10_value <= 54:
+        return "Good"
+    elif pm10_value <= 154:
+        return "Moderate"
+    elif pm10_value <= 254:
+        return "Unhealthy for Sensitive Groups"
+    elif pm10_value <= 354:
+        return "Unhealthy"
+    elif pm10_value <= 424:
+        return "Very Unhealthy"
+    else:
+        return "Hazardous"
+
+def get_aqi_color_pm10(pm10_value):
+    """Get color for AQI category based on PM10 value."""
+    if pm10_value is None:
+        return "#CCCCCC"
+    elif pm10_value <= 54:
+        return "#00E400"
+    elif pm10_value <= 154:
+        return "#FFFF00"
+    elif pm10_value <= 254:
+        return "#FF7E00"
+    elif pm10_value <= 354:
+        return "#FF0000"
+    elif pm10_value <= 424:
+        return "#8F3F97"
+    else:
+        return "#7E0023"
+
 # Sidebar configuration
 st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("### Select a City")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("City", cities)
 
-# Dropdown for PM2.5 or PM10 prediction
-selected_pollutant = st.sidebar.selectbox("Select Pollutant", ["PM2.5", "PM10"])
+selected_pollutant = st.sidebar.selectbox(
+    "Select Pollutant",
+    ["PM2.5", "PM10"]
+)
 
 if st.sidebar.button("Refresh Data"):
     load_current_data(selected_city)
@@ -187,7 +213,7 @@ if st.sidebar.button("Refresh Data"):
         del st.session_state.feature_importances[selected_city]
 
 # Main content
-st.title(f"Air Quality Prediction for {selected_city} - {selected_pollutant} Forecast")
+st.title(f"Air Quality Prediction for {selected_city}")
 
 if selected_city not in st.session_state.current_data:
     with st.spinner(f"Loading current data for {selected_city}..."):
@@ -200,98 +226,42 @@ if current_data:
     with col1:
         st.markdown(f"### Current {selected_pollutant}")
         pollutant_value = current_data.get('pm25') if selected_pollutant == "PM2.5" else current_data.get('pm10')
-        st.markdown(f"<h1 style='color: {get_aqi_color(pollutant_value)};'>{pollutant_value:.1f}</h1>", unsafe_allow_html=True)
-        st.markdown(f"**Category**: {get_aqi_category(pollutant_value)}")
+        category = get_aqi_category_pm25(pollutant_value) if selected_pollutant == "PM2.5" else get_aqi_category_pm10(pollutant_value)
+        color = get_aqi_color_pm25(pollutant_value) if selected_pollutant == "PM2.5" else get_aqi_color_pm10(pollutant_value)
+        st.markdown(f"<h1 style='color: {color};'>{pollutant_value:.1f}</h1>", unsafe_allow_html=True)
+        st.markdown(f"**Category**: {category}")
     with col2:
-        st.markdown("### Current PM10")
-        pm10 = current_data.get('pm10')
-        st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
-    with col3:
         st.markdown("### Weather Conditions")
         temp = current_data.get('temperature')
         humidity = current_data.get('humidity')
         wind = current_data.get('wind_speed')
         if temp is not None:
-            st.markdown(f"Temperature: {temp:.1f}°C")
+            st.markdown(f"**Temperature**: {temp:.1f}°C")
         if humidity is not None:
-            st.markdown(f"Humidity: {humidity:.1f}%")
+            st.markdown(f"**Humidity**: {humidity}%")
         if wind is not None:
-            st.markdown(f"Wind Speed: {wind:.1f} m/s")
-else:
-    st.warning(f"No data available for {selected_city}. Try refreshing.")
+            st.markdown(f"**Wind Speed**: {wind:.1f} m/s")
 
-# Forecast section
-st.markdown(f"## 3-Day {selected_pollutant} Forecast")
-forecast_data = load_forecast(selected_city, selected_pollutant)
-if not forecast_data.empty:
+    with col3:
+        st.markdown("### Feature Importance")
+        feature_importance = get_feature_importance(selected_city)
+        st.write(feature_importance)
+
+    st.markdown("---")
+
+    # Forecast section
+    forecast_data = load_forecast(selected_city)
+    st.subheader("Forecast for Next 3 Days")
+    st.dataframe(forecast_data)
     fig = go.Figure()
-    forecast_data['pollutant_color'] = forecast_data[selected_pollutant].apply(get_aqi_color)
     fig.add_trace(go.Scatter(
         x=forecast_data['date'],
-        y=forecast_data[selected_pollutant],
+        y=forecast_data['pm25'] if selected_pollutant == "PM2.5" else forecast_data['pm10'],
         mode='lines+markers',
         name=selected_pollutant,
         line=dict(width=3),
-        marker=dict(color=forecast_data['pollutant_color'])
+        marker=dict(color=forecast_data['pm25'] if selected_pollutant == "PM2.5" else forecast_data['pm10'])
     ))
-    fig.update_layout(
-        title=f'Predicted {selected_pollutant} Levels',
-        xaxis_title='Date',
-        yaxis_title=f'{selected_pollutant} Concentration (μg/m³)',
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        height=400,
-        margin=dict(l=20, r=20, t=50, b=20),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown(f"### Detailed {selected_pollutant} Forecast Values")
-    forecast_display = forecast_data.copy()
-    forecast_display = forecast_display.rename(columns={
-        'date': 'Date',
-        selected_pollutant: f'{selected_pollutant} (μg/m³)'
-    })
-    st.dataframe(forecast_display)
+    st.plotly_chart(fig)
 else:
-    st.warning("Forecast data is not available. Try refreshing.")
-
-# Feature importance section
-st.markdown("## Feature Importance")
-st.markdown("What factors most influence air quality predictions?")
-importance_data = get_feature_importance(selected_city)
-if not importance_data.empty:
-    top_features = importance_data.head(10)
-    fig = px.bar(
-        top_features,
-        x='importance',
-        y='feature',
-        orientation='h',
-        title='Top 10 Features by Importance',
-        labels={'importance': 'Importance Score', 'feature': 'Feature'},
-        color='importance',
-        color_continuous_scale='Viridis'
-    )
-    fig.update_layout(
-        yaxis=dict(categoryorder='total ascending'),
-        height=400,
-        margin=dict(l=20, r=20, t=50, b=20),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    top_feature = importance_data.iloc[0]['feature']
-    st.markdown(f"### Key Insight")
-    st.markdown(f"The most important factor for air quality prediction is **{top_feature}**.")
-    feature_explanations = {
-        'temperature': "Higher temperatures can accelerate chemical reactions that produce pollutants.",
-        'humidity': "Humidity affects the formation and dispersion of particulate matter.",
-        'wind_speed': "Higher wind speeds generally help disperse pollutants.",
-        'pm25_lag_1': "Yesterday's PM2.5 level is a strong predictor of today's level.",
-        'pm25_rolling_mean_24': "The 24-hour average PM2.5 level indicates recent air quality trends."
-    }
-    if top_feature in feature_explanations:
-        st.markdown(feature_explanations[top_feature])
-else:
-    st.warning("Feature importance data is not available.")
+    st.error(f"No data available for {selected_city}.")
