@@ -45,17 +45,13 @@ def load_cities() -> List[dict]:
 
 def validate_features(X: pd.DataFrame, target_col: str) -> pd.DataFrame:
     """Clean and validate features."""
-    # Remove target if present
     if target_col in X.columns:
         X = X.drop(columns=[target_col])
-    
-    # Remove duplicates and constants
     X = X.loc[:, ~X.columns.duplicated()]
     constant_cols = X.columns[X.nunique() == 1]
     if not constant_cols.empty:
         logger.warning(f"Removing constant columns: {list(constant_cols)}")
         X = X.drop(columns=constant_cols)
-    
     return X
 
 def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
@@ -67,13 +63,11 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
         if y.isna().all():
             raise ValueError("Invalid target values")
             
-        # Handle missing data
         empty_cols = X.columns[X.isna().all()]
         if not empty_cols.empty:
             logger.warning(f"Dropping empty columns: {list(empty_cols)}")
             X = X.drop(columns=empty_cols)
         
-        # Impute and scale
         imputer = SimpleImputer(strategy='mean')
         X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
         y = y.fillna(y.mean())
@@ -84,31 +78,11 @@ def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Ser
         return X, y
     except Exception as e:
         logger.error(f"Preprocessing failed: {e}")
-        return None, None
+        return pd.DataFrame(), pd.Series()
 
-def get_training_data(feature_store: FeatureStore,
-                     feature_view_name: str,
-                     target_col: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
-    """Retrieve and prepare training data."""
-    try:
-        fv = feature_store.get_feature_view(feature_view_name, version=1)
-        if not fv:
-            raise ValueError("Feature view not found")
-            
-        training_data = fv.get_training_data(training_dataset_version=1)
-        if not training_data:
-            raise ValueError("No training data")
-        
-        X = validate_features(training_data[0], target_col)
-        y = training_data[1][target_col]
-        return preprocess_data(X, y)
-    except Exception as e:
-        logger.error(f"Data retrieval failed: {e}")
-        return None, None
-
-def run_training_pipeline() -> None:
-    """Execute full training workflow with CV."""
-    logger.info("Starting training pipeline...")
+def run_training_pipeline():
+    """Enhanced training pipeline with standardized naming and deployment."""
+    logger.info("Starting enhanced training pipeline...")
     
     try:
         cities = load_cities()
@@ -116,64 +90,87 @@ def run_training_pipeline() -> None:
         model_registry = ModelRegistry()
         
         for city in cities:
-            city_name = city['name']
+            city_name = city['name'].lower().replace(' ', '_')
             logger.info(f"Processing {city_name}")
             
             for target in ['pm25', 'pm10']:
-                logger.info(f"Training {target} model")
+                target_col = target.lower()
+                logger.info(f"Training {target_col} model")
                 
-                fv_name = f"{city_name.lower().replace(' ', '_')}_aqi_features"
-                X, y = get_training_data(feature_store, fv_name, target)
+                # Standardized feature view name
+                fv_name = f"{city_name}_aqi_features"
+                X, y = get_training_data(feature_store, fv_name, target_col)
                 
                 if X is None or y is None:
-                    logger.warning(f"Skipping {city_name} - {target}")
+                    logger.warning(f"Skipping {city_name} - {target_col}")
                     continue
                 
-                # Configure and run training
+                # Initialize trainer
                 trainer = ModelTrainer(
-                    target_col=target,
+                    target_col=target_col,
                     n_splits=5,
                     random_state=42
                 )
                 
                 model_config = {
                     'linear': 'linear',
-                    'ridge': 'ridge', 
+                    'ridge': 'ridge',
                     'lasso': 'lasso',
                     'random_forest': 'forest',
                     'gradient_boosting': 'boosting'
                 }
                 
+                # Run CV
                 results = trainer.cross_validate_models(X, y, model_config)
                 best_model = trainer.select_best_model(results)
                 
                 if best_model:
-                    logger.info(f"Best model: {best_model['name']} (RMSE: {best_model['metrics']['rmse']:.4f})")
+                    # Standardized model name
+                    model_name = f"{city_name}_{target_col}"
                     
-                    # Save to registry
-                    model_registry.save_model(
+                    # Save with comprehensive metrics
+                    version = model_registry.save_model(
                         model=best_model['model'].model,
-                        name=f"{city_name}_{target}",
-                        metrics=best_model['metrics'],
+                        name=model_name,
+                        metrics={
+                            'rmse': best_model['metrics']['rmse'],
+                            'mae': best_model['metrics']['mae'],
+                            'r2': best_model['metrics']['r2'],
+                            'rmse_std': best_model['std_dev']['rmse'],
+                            'mae_std': best_model['std_dev']['mae'],
+                            'r2_std': best_model['std_dev']['r2']
+                        },
                         tags={
                             'city': city_name,
-                            'target': target,
-                            'model_type': best_model['name']
-                        }
+                            'target': target_col,
+                            'model_type': best_model['name'],
+                            'deployable': 'true'
+                        },
+                        description=f"Best {target_col} model for {city_name}"
                     )
                     
-                    # Generate feature importance
+                    # Auto-deploy best model
+                    if version:
+                        deployment = model_registry.deploy_model(
+                            model_name=model_name,
+                            version=version,
+                            deployment_name=f"{model_name}_deployment"
+                        )
+                        logger.info(f"Deployed {model_name} version {version}")
+                    
+                    # Feature importance analysis
                     if best_model['name'] in ['random_forest', 'gradient_boosting']:
                         try:
                             analyzer = FeatureImportanceAnalyzer(best_model['model'].model, X)
                             analyzer.generate_report()
+                            analyzer.plot_importance(top_n=10)
                         except Exception as e:
-                            logger.error(f"Feature analysis failed: {e}")
+                            logger.error(f"Feature analysis failed: {str(e)}")
         
         logger.info("Training pipeline completed successfully")
 
     except Exception as e:
-        logger.error(f"Pipeline failed: {e}")
+        logger.error(f"Pipeline failed: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
 
 if __name__ == "__main__":
