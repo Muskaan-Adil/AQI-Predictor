@@ -155,3 +155,28 @@ class ModelRegistry:
         except Exception as e:
             logger.error(f"Failed to get best model: {e}")
             return None
+
+    def get_latest_model(self, name):
+        """Get the latest version of a model based on timestamp."""
+        if self.mr is None:
+            logger.error("Not connected to Hopsworks model registry")
+            return None
+    
+        try:
+            models = self.mr.get_models(name=name)
+    
+            if not models:
+                logger.warning(f"No models found with name: {name}")
+                return None
+    
+            # Sort models by timestamp in descending order to get the most recent
+            models_sorted_by_timestamp = sorted(models, key=lambda model: model.get_metrics().get('timestamp', '0'), reverse=True)
+    
+            if models_sorted_by_timestamp:
+                return models_sorted_by_timestamp[0]
+            else:
+                logger.warning(f"No valid models found for {name}")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get latest model: {e}")
+            return None
