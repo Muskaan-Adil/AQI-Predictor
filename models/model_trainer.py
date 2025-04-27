@@ -37,10 +37,11 @@ class ModelTrainer:
 
     def _initialize_models(self, target_col):
         """Initialize all model classes with standardized naming."""
+        # Pass max_iter only for models that require it (e.g., linear models)
         return {
             'linear': LinearModel(name="linear", target_col=target_col),
             'ridge': LinearModel(name="ridge", target_col=target_col, model_type='ridge'),
-            'lasso': LinearModel(name="lasso", target_col=target_col, model_type='lasso', max_iter=5000),
+            'lasso': LinearModel(name="lasso", target_col=target_col, model_type='lasso', max_iter=5000),  # only pass for Lasso
             'random_forest': ForestModel(name="random_forest", target_col=target_col),
             'gradient_boosting': BoostingModel(name="gradient_boosting", target_col=target_col),
             'sarima': TimeSeriesModel(name="sarima", target_col=target_col),
