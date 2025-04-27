@@ -15,9 +15,17 @@ from evaluation.metrics import calculate_metrics
 logger = logging.getLogger(__name__)
 
 class ModelTrainer:
-    """Enhanced model trainer with complete metrics tracking."""
+    """Enhanced model trainer with complete metrics tracking, standardized naming, and robust validation."""
     
     def __init__(self, target_col=None, n_splits=5, random_state=42):
+        """
+        Initialize the model trainer with enhanced configuration.
+        
+        Args:
+            target_col (str, optional): Target column name. Defaults to None.
+            n_splits (int, optional): Number of CV folds. Defaults to 5.
+            random_state (int, optional): Random seed. Defaults to 42.
+        """
         self.target_col = target_col
         self.n_splits = n_splits
         self.random_state = random_state
@@ -26,9 +34,9 @@ class ModelTrainer:
         self.model_metrics = {}
         self.feature_importances = {}
         self.cv = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    
+
     def _initialize_models(self, target_col):
-        """Initialize models with standardized naming."""
+        """Initialize all model classes with standardized naming."""
         return {
             'linear': LinearModel(name="linear", target_col=target_col),
             'ridge': LinearModel(name="ridge", target_col=target_col, model_type='ridge'),
@@ -39,17 +47,27 @@ class ModelTrainer:
             'neural_net': NeuralNetModel(name="neural_net", target_col=target_col)
         }
 
-
     def _log_metrics(self, name, metrics):
-        """Enhanced metrics logging with all key metrics."""
+        """Enhanced metrics logging with standard deviation."""
         logger.info(
-            f"{name} - RMSE: {metrics['rmse']:.4f} ± {metrics.get('rmse_std', 0):.4f}, "
+            f"{name} results - "
+            f"RMSE: {metrics['rmse']:.4f} ± {metrics.get('rmse_std', 0):.4f}, "
             f"MAE: {metrics['mae']:.4f} ± {metrics.get('mae_std', 0):.4f}, "
             f"R²: {metrics['r2']:.4f} ± {metrics.get('r2_std', 0):.4f}"
         )
 
     def cross_validate_models(self, X, y, models):
-        """Enhanced CV with full metrics tracking and standard deviation."""
+        """
+        Perform enhanced cross-validation with comprehensive metrics tracking.
+        
+        Args:
+            X (pd.DataFrame): Features
+            y (pd.Series): Target
+            models (dict): Model configurations
+            
+        Returns:
+            dict: Results dictionary with metrics and models
+        """
         results = {}
         for name, model_type in models.items():
             try:
@@ -68,7 +86,7 @@ class ModelTrainer:
                     for metric in cv_scores:
                         cv_scores[metric].append(metrics[metric])
                     
-                    logger.debug(f"Fold {fold} {name} metrics: {metrics}")
+                    logger.debug(f"Fold {fold} metrics: {metrics}")
 
                 # Calculate mean and std of metrics
                 avg_metrics = {k: np.mean(v) for k, v in cv_scores.items()}
@@ -87,23 +105,43 @@ class ModelTrainer:
         return results
 
     def select_best_model(self, results):
-        """Select best model with comprehensive metrics."""
+        """
+        Select best model based on RMSE with comprehensive metrics.
+        
+        Args:
+            results (dict): CV results dictionary
+            
+        Returns:
+            dict: Best model info or None
+        """
         valid_results = {k: v for k, v in results.items() if v is not None}
         if not valid_results:
+            logger.warning("No valid models to select from")
             return None
             
         best_name = min(valid_results, key=lambda k: valid_results[k]['metrics']['rmse'])
-        best = valid_results[best_name]
+        best_result = valid_results[best_name]
         
+        logger.info(f"Selected best model: {best_name}")
         return {
             'name': best_name,
-            'model': best['model'],
-            'metrics': best['metrics'],
-            'cv_scores': best['cv_scores']
+            'model': best_result['model'],
+            'metrics': best_result['metrics'],
+            'cv_scores': best_result['cv_scores']
         }
 
     def train_models(self, X, y, test_size=0.2):
-        """Train models with train-test split."""
+        """
+        Train models with train-test split (maintained for backward compatibility).
+        
+        Args:
+            X (pd.DataFrame): Features
+            y (pd.Series): Target
+            test_size (float, optional): Test set size. Defaults to 0.2.
+            
+        Returns:
+            tuple: (models, metrics, best_model_name)
+        """
         if isinstance(y, pd.DataFrame):
             target_col = self.target_col if self.target_col in y.columns else y.columns[0]
             self.target_col = target_col
@@ -129,12 +167,12 @@ class ModelTrainer:
                 if importance := model.get_feature_importances():
                     self.feature_importances[name] = importance
                 
-                logger.info(f"{name} - RMSE: {metrics['rmse']:.4f}, R²: {metrics['r2']:.4f}")
+                self._log_metrics(name, metrics)
             except Exception as e:
-                logger.error(f"Error training {name}: {e}")
+                logger.error(f"Error training {name}: {str(e)}")
                 self.model_metrics[name] = {
-                    'rmse': float('inf'), 
-                    'mae': float('inf'), 
+                    'rmse': float('inf'),
+                    'mae': float('inf'),
                     'r2': -float('inf')
                 }
         
@@ -144,28 +182,55 @@ class ModelTrainer:
         return self.models, self.model_metrics, best_model_name
 
     def predict(self, X, model_name=None):
-        """Make predictions using specified or best model."""
-        model = (self.models[model_name] if model_name else self.best_model)
+        """
+        Make predictions using specified or best model.
+        
+        Args:
+            X (pd.DataFrame): Features
+            model_name (str, optional): Model name. Defaults to None.
+            
+        Returns:
+            np.array: Predictions or None
+        """
+        model = self.models.get(model_name, self.best_model)
         if not model:
-            logger.error("No model available")
+            logger.error("No model available for prediction")
             return None
         return model.predict(X)
 
     def get_best_model(self):
-        """Get best model info."""
+        """
+        Get best model information.
+        
+        Returns:
+            tuple: (best_model, best_name, metrics) or (None, None, None)
+        """
         if not self.best_model:
             return None, None, None
         best_name = min(self.model_metrics, key=lambda k: self.model_metrics[k]['rmse'])
         return self.best_model, best_name, self.model_metrics[best_name]
 
     def get_all_metrics(self):
-        """Get metrics for all models."""
+        """
+        Get metrics for all models as DataFrame.
+        
+        Returns:
+            pd.DataFrame: Metrics dataframe
+        """
         if not self.model_metrics:
             return pd.DataFrame()
-        return pd.DataFrame(self.model_metrics).T.reset_index().rename(columns={'index':'model'})
+        return pd.DataFrame(self.model_metrics).T.reset_index().rename(columns={'index': 'model'})
 
     def get_feature_importances(self, model_name=None):
-        """Get feature importances."""
+        """
+        Get feature importances for specified or best model.
+        
+        Args:
+            model_name (str, optional): Model name. Defaults to None.
+            
+        Returns:
+            pd.DataFrame: Feature importances
+        """
         if model_name in self.feature_importances:
             return self.feature_importances[model_name]
         best_name = min(self.model_metrics, key=lambda k: self.model_metrics[k]['rmse'])
