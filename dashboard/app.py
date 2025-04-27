@@ -17,7 +17,7 @@ from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
 
 st.set_page_config(
-    page_title=Config.DASHBOARD_TITLE,
+    page_title="AQI PREDICTOR DASHBOARD",
     page_icon="🌍",
     layout="wide",
     initial_sidebar_state="expanded"
