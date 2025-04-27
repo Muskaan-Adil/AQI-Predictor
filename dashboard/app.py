@@ -43,7 +43,7 @@ def load_cities():
     try:
         with open("cities.yaml", "r") as file:
             cities = yaml.safe_load(file)
-            return [city["name"] for city in cities]
+            return [city["name"] for city in cities["cities"]]  # Correcting the YAML structure access
     except Exception as e:
         st.error(f"Error loading cities from YAML: {e}")
         return []
@@ -133,7 +133,7 @@ st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("---")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("Select City", cities)
-selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
+selected_pollutant = st.sidebar.selectbox("Select Pollutant", ["PM2.5", "PM10"])  # Using a dropdown for pollutant selection
 if st.sidebar.button("Refresh"):
     load_current_data(selected_city)
     st.session_state.forecasts.pop(selected_city, None)
