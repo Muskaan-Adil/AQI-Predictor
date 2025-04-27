@@ -9,7 +9,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-# Suppress TensorFlow GPU warnings
+# Suppress TensorFlow warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 logging.basicConfig(
@@ -24,97 +24,90 @@ from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
 
 def load_cities() -> List[dict]:
-    """Load cities from YAML configuration file."""
+    """Load cities from config file."""
     yaml_path = 'cities.yaml'
-    
     default_cities = [
         {"name": "New York", "lat": 40.7128, "lon": -74.0060},
         {"name": "London", "lat": 51.5074, "lon": -0.1278},
     ]
-    
     try:
         if os.path.exists(yaml_path):
-            with open(yaml_path, 'r') as file:
-                data = yaml.safe_load(file)
-                if data and 'cities' in data and isinstance(data['cities'], list):
-                    logger.info(f"Loaded {len(data['cities'])} cities from YAML")
-                    return data['cities']
-        logger.warning("Cities YAML not found, using default cities")
+            with open(yaml_path, 'r') as f:
+                if data := yaml.safe_load(f):
+                    if isinstance(data.get('cities'), list):
+                        logger.info(f"Loaded {len(data['cities'])} cities")
+                        return data['cities']
+        logger.warning("Using default cities")
         return default_cities
     except Exception as e:
-        logger.error(f"Error loading cities from YAML: {e}")
+        logger.error(f"Error loading cities: {e}")
         return default_cities
 
 def validate_features(X: pd.DataFrame, target_col: str) -> pd.DataFrame:
-    """Validate and clean feature set."""
-    # Remove target if present in features
+    """Clean and validate features."""
+    # Remove target if present
     if target_col in X.columns:
         X = X.drop(columns=[target_col])
     
-    # Remove duplicate columns
+    # Remove duplicates and constants
     X = X.loc[:, ~X.columns.duplicated()]
-    
-    # Remove constant columns
     constant_cols = X.columns[X.nunique() == 1]
-    if constant_cols.any():
+    if not constant_cols.empty:
         logger.warning(f"Removing constant columns: {list(constant_cols)}")
         X = X.drop(columns=constant_cols)
     
     return X
 
 def preprocess_data(X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
-    """Preprocess data with enhanced validation."""
+    """Preprocess data with robust handling."""
     try:
         X = X.apply(pd.to_numeric, errors='coerce')
         y = pd.to_numeric(y, errors='coerce')
         
-        # Check for valid target
         if y.isna().all():
-            raise ValueError("All target values are missing/invalid")
+            raise ValueError("Invalid target values")
             
-        # Remove empty features
+        # Handle missing data
         empty_cols = X.columns[X.isna().all()]
-        if empty_cols.any():
+        if not empty_cols.empty:
             logger.warning(f"Dropping empty columns: {list(empty_cols)}")
             X = X.drop(columns=empty_cols)
         
-        # Handle remaining missing values
+        # Impute and scale
         imputer = SimpleImputer(strategy='mean')
         X = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
         y = y.fillna(y.mean())
         
-        # Scale features
         scaler = StandardScaler()
         X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
         
         return X, y
     except Exception as e:
-        logger.error(f"Data preprocessing failed: {e}")
+        logger.error(f"Preprocessing failed: {e}")
         return None, None
 
 def get_training_data(feature_store: FeatureStore,
                      feature_view_name: str,
-                     target_col: str
-                    ) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
-    """Get and validate training data."""
+                     target_col: str) -> Tuple[Optional[pd.DataFrame], Optional[pd.Series]]:
+    """Retrieve and prepare training data."""
     try:
-        feature_view = feature_store.get_feature_view(feature_view_name, version=1)
-        training_data = feature_view.get_training_data(training_dataset_version=1)
+        fv = feature_store.get_feature_view(feature_view_name, version=1)
+        if not fv:
+            raise ValueError("Feature view not found")
+            
+        training_data = fv.get_training_data(training_dataset_version=1)
+        if not training_data:
+            raise ValueError("No training data")
         
-        X = training_data[0]
+        X = validate_features(training_data[0], target_col)
         y = training_data[1][target_col]
-        
-        # Validate features
-        X = validate_features(X, target_col)
-        X, y = preprocess_data(X, y)
-        
-        return X, y
+        return preprocess_data(X, y)
     except Exception as e:
         logger.error(f"Data retrieval failed: {e}")
         return None, None
 
 def run_training_pipeline() -> None:
-    """Main training workflow with enhanced validation."""
+    """Execute full training workflow with CV."""
     logger.info("Starting training pipeline...")
     
     try:
@@ -133,30 +126,33 @@ def run_training_pipeline() -> None:
                 X, y = get_training_data(feature_store, fv_name, target)
                 
                 if X is None or y is None:
+                    logger.warning(f"Skipping {city_name} - {target}")
                     continue
                 
-                # Initialize trainer with cross-validation
+                # Configure and run training
                 trainer = ModelTrainer(
                     target_col=target,
                     n_splits=5,
                     random_state=42
                 )
                 
-                models = {
+                model_config = {
                     'linear': 'linear',
-                    'ridge': 'ridge',
+                    'ridge': 'ridge', 
                     'lasso': 'lasso',
                     'random_forest': 'forest',
                     'gradient_boosting': 'boosting'
                 }
                 
-                results = trainer.cross_validate_models(X, y, models)
+                results = trainer.cross_validate_models(X, y, model_config)
                 best_model = trainer.select_best_model(results)
                 
                 if best_model:
-                    # Save model with metadata
+                    logger.info(f"Best model: {best_model['name']} (RMSE: {best_model['metrics']['rmse']:.4f})")
+                    
+                    # Save to registry
                     model_registry.save_model(
-                        model=best_model['model'],
+                        model=best_model['model'].model,
                         name=f"{city_name}_{target}",
                         metrics=best_model['metrics'],
                         tags={
@@ -166,17 +162,19 @@ def run_training_pipeline() -> None:
                         }
                     )
                     
-                    # Feature importance for tree-based models
+                    # Generate feature importance
                     if best_model['name'] in ['random_forest', 'gradient_boosting']:
-                        analyzer = FeatureImportanceAnalyzer(best_model['model'], X)
-                        analyzer.generate_report()
+                        try:
+                            analyzer = FeatureImportanceAnalyzer(best_model['model'].model, X)
+                            analyzer.generate_report()
+                        except Exception as e:
+                            logger.error(f"Feature analysis failed: {e}")
         
-        logger.info("Training pipeline completed")
+        logger.info("Training pipeline completed successfully")
 
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Traceback: {traceback.format_exc()}")
 
 if __name__ == "__main__":
     run_training_pipeline()
