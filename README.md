@@ -31,11 +31,11 @@ The application follows a modular architecture:
   - HOPSWORKS_API_KEY=your_hopsworks_api_key
   - HOPSWORKS_PROJECT_NAME=your_hopsworks_project
 
-4. Run the backfill to collect historical data: python -m src.feature_engineering.backfill
+4. Run the backfill to collect historical data: python -m feature_engineering.backfill
 
-5. Train the models: python -m src.models.model_trainer
+5. Train the models: python -m models.model_trainer
 
-6. Launch the dashboard: streamlit run src.dashboard.app
+6. Launch the dashboard: streamlit run dashboard.app
 
 ## Using the Dashboard
 The dashboard allows you to:
