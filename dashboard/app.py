@@ -9,11 +9,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 # ---- PATH CONFIGURATION ----
-# Add project root to Python path (critical for imports)
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-# Now import your config (after path is set)
 try:
     from utils.config import Config
 except ImportError as e:
@@ -27,7 +25,6 @@ except ImportError as e:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize session state
 def init_session_state():
     session_defaults = {
         'fs': None,
@@ -40,7 +37,6 @@ def init_session_state():
         if key not in st.session_state:
             st.session_state[key] = val
 
-# Connect to Hopsworks
 def connect_to_hopsworks():
     try:
         project = hopsworks.login(
@@ -50,24 +46,36 @@ def connect_to_hopsworks():
             port=443,
             hostname_verification=False
         )
-        return project.get_feature_store()
+        fs = project.get_feature_store()
+        
+        # Verify connection by checking feature view exists
+        try:
+            fs.get_feature_view("karachi_aqi_features", 1)
+            return fs
+        except Exception as e:
+            st.error(f"❌ Feature view not found: {str(e)}")
+            return None
+            
     except Exception as e:
         st.error(f"❌ Hopsworks connection failed: {str(e)}")
         return None
 
-# Load cities from feature store
 def load_cities(fs):
     try:
         fv = fs.get_feature_view("karachi_aqi_features", 1)
         data = fv.get_batch_data()
         if not isinstance(data, pd.DataFrame):
             data = data.to_pandas()
+            
+        if 'city' not in data.columns:
+            st.error("⚠️ 'city' column not found in feature data")
+            return []
+            
         return data["city"].unique().tolist()
     except Exception as e:
         st.error(f"⚠️ Failed to load cities: {str(e)}")
         return []
 
-# Load most recent city data
 def load_city_data(fs, city):
     try:
         fv = fs.get_feature_view("karachi_aqi_features", 1)
@@ -75,24 +83,40 @@ def load_city_data(fs, city):
         if not isinstance(data, pd.DataFrame):
             data = data.to_pandas()
         
-        city_data = data[data["city"] == city]
-        if city_data.empty:
+        # Validate required columns exist
+        required_columns = ['city', 'timestamp', 'pm25', 'pm10', 
+                           'temperature', 'humidity', 'wind_speed']
+        missing = [col for col in required_columns if col not in data.columns]
+        if missing:
+            st.error(f"⚠️ Missing columns: {', '.join(missing)}")
             return None
             
-        latest = city_data.sort_values("date", ascending=False).iloc[0]
+        city_data = data[data["city"] == city]
+        if city_data.empty:
+            st.warning(f"No records found for {city}")
+            return None
+            
+        # Sort by timestamp instead of date
+        latest = city_data.sort_values("timestamp", ascending=False).iloc[0]
+        
+        # Convert timestamp to readable format if needed
+        if isinstance(latest['timestamp'], (int, float)):
+            last_updated = datetime.fromtimestamp(latest['timestamp']).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            last_updated = str(latest['timestamp'])
+        
         return {
-            'pm25': latest['pm25'],
-            'pm10': latest['pm10'],
-            'temperature': latest['temperature'],
-            'humidity': latest['humidity'],
-            'wind_speed': latest['wind_speed'],
-            'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            'pm25': float(latest['pm25']),
+            'pm10': float(latest['pm10']),
+            'temperature': float(latest['temperature']),
+            'humidity': float(latest['humidity']),
+            'wind_speed': float(latest['wind_speed']),
+            'last_updated': last_updated
         }
     except Exception as e:
         st.error(f"⚠️ Failed to load {city} data: {str(e)}")
         return None
 
-# Generate forecast (replace with your actual model)
 def generate_forecast(current_data, pollutant):
     try:
         base_value = current_data[f'pm{pollutant.replace(".", "")}']
@@ -110,7 +134,6 @@ def generate_forecast(current_data, pollutant):
         st.error(f"⚠️ Forecast failed: {str(e)}")
         return None
 
-# Display current metrics
 def display_current_metrics(city, data):
     st.subheader(f"Current Air Quality in {city}")
     col1, col2 = st.columns(2)
@@ -122,7 +145,6 @@ def display_current_metrics(city, data):
         st.metric("Humidity", f"{data['humidity']:.0f}%")
     st.caption(f"Last updated: {data['last_updated']}")
 
-# Display forecast chart
 def display_forecast(forecast, pollutant):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -138,7 +160,6 @@ def display_forecast(forecast, pollutant):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# Main app
 def main():
     init_session_state()
     st.set_page_config(
@@ -154,6 +175,16 @@ def main():
             if not st.session_state.fs:
                 st.stop()
 
+    # Debug: Show feature view columns
+    try:
+        fv = st.session_state.fs.get_feature_view("karachi_aqi_features", 1)
+        data_sample = fv.get_batch_data()
+        if not isinstance(data_sample, pd.DataFrame):
+            data_sample = data_sample.to_pandas()
+        st.sidebar.write("Feature view columns:", data_sample.columns.tolist())
+    except:
+        pass
+
     # Load cities
     if not st.session_state.cities:
         with st.spinner("Loading cities..."):
@@ -162,13 +193,14 @@ def main():
                 st.error("No cities available")
                 st.stop()
 
-    # Sidebar controls
+    # UI Controls
     st.sidebar.title("Controls")
     selected_city = st.sidebar.selectbox("City", st.session_state.cities)
     st.session_state.pollutant = st.sidebar.selectbox("Pollutant", ["PM2.5", "PM10"])
     
     if st.sidebar.button("🔄 Refresh"):
         st.session_state.current_data.pop(selected_city, None)
+        st.session_state.forecasts.pop(selected_city, None)
         st.rerun()
 
     # Main content
