@@ -21,17 +21,15 @@ The application follows a modular architecture:
 5. **Automation** - GitHub Actions for scheduling pipeline runs
 
 ## Setup and Installation
-1. Clone the repository:
-   git clone https://github.com/Muskaan-Adil/Pearls-AQI-Predictor.git
-   cd pearls-aqi-predictor
+1. Clone the repository: https://github.com/Muskaan-Adil/AQI-Predictor.git
 
 3. Install dependencies: pip install -r requirements.txt
 
 5. Set up environment variables:
-   AQICN_API_KEY=your_aqicn_api_key
-   OPENWEATHER_API_KEY=your_openweather_api_key
-   HOPSWORKS_API_KEY=your_hopsworks_api_key
-   HOPSWORKS_PROJECT_NAME=your_hopsworks_project
+-  AQICN_API_KEY=your_aqicn_api_key
+-  OPENWEATHER_API_KEY=your_openweather_api_key
+-  HOPSWORKS_API_KEY=your_hopsworks_api_key
+-  HOPSWORKS_PROJECT_NAME=your_hopsworks_project
 
 7. Run the backfill to collect historical data: python -m src.feature_engineering.backfill
 
@@ -51,5 +49,3 @@ The dashboard allows you to:
 The project includes GitHub Actions workflows:
 - `feature_pipeline.yml` - Runs hourly to collect new data and update features
 - `training_pipeline.yml` - Runs daily to retrain models with new data
-
-## License
