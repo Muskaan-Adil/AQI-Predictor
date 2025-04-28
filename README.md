@@ -23,19 +23,19 @@ The application follows a modular architecture:
 ## Setup and Installation
 1. Clone the repository: https://github.com/Muskaan-Adil/AQI-Predictor.git
 
-3. Install dependencies: pip install -r requirements.txt
+2. Install dependencies: pip install -r requirements.txt
 
-5. Set up environment variables:
+3. Set up environment variables:
   - AQICN_API_KEY=your_aqicn_api_key
   - OPENWEATHER_API_KEY=your_openweather_api_key
   - HOPSWORKS_API_KEY=your_hopsworks_api_key
   - HOPSWORKS_PROJECT_NAME=your_hopsworks_project
 
-7. Run the backfill to collect historical data: python -m src.feature_engineering.backfill
+4. Run the backfill to collect historical data: python -m src.feature_engineering.backfill
 
-8. Train the models: python -m src.models.model_trainer
+5. Train the models: python -m src.models.model_trainer
 
-9. Launch the dashboard: streamlit run src.dashboard.app
+6. Launch the dashboard: streamlit run src.dashboard.app
 
 ## Using the Dashboard
 The dashboard allows you to:
