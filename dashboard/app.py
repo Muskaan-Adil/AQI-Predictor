@@ -10,7 +10,7 @@ import streamlit as st
 from utils.config import Config
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)  # Set to DEBUG for troubleshooting
 logger = logging.getLogger(__name__)
 
 # Add project root to Python path
@@ -18,21 +18,21 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 # Initialize session state
 def init_session_state():
-    session_defaults = {
-        'fs_connected': False,
-        'cities': [],
-        'current_data': {},
-        'forecasts': {},
-        'pollutant': 'PM2.5',
-        'last_update': None
-    }
-    for key, val in session_defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = val
+    if 'fs' not in st.session_state:
+        st.session_state.fs = None
+    if 'cities' not in st.session_state:
+        st.session_state.cities = []
+    if 'current_data' not in st.session_state:
+        st.session_state.current_data = {}
+    if 'forecasts' not in st.session_state:
+        st.session_state.forecasts = {}
+    if 'pollutant' not in st.session_state:
+        st.session_state.pollutant = "PM2.5"
 
 # Connect to Hopsworks with robust error handling
-def connect_feature_store():
+def connect_to_hopsworks():
     try:
+        logger.debug("Attempting to connect to Hopsworks...")
         project = hopsworks.login(
             project=Config.HOPSWORKS_PROJECT_NAME,
             api_key_value=Config.HOPSWORKS_API_KEY,
@@ -41,26 +41,31 @@ def connect_feature_store():
             hostname_verification=False
         )
         fs = project.get_feature_store()
-        st.session_state.feature_store = fs
-        st.session_state.fs_connected = True
+        st.session_state.fs = fs
         logger.info("Successfully connected to Hopsworks")
-        return fs
+        return True
     except Exception as e:
-        logger.error(f"Hopsworks connection failed: {str(e)}")
-        st.error("🔴 Failed to connect to Hopsworks Feature Store")
-        st.error(f"Error details: {str(e)}")
-        return None
+        logger.error(f"Connection failed: {str(e)}", exc_info=True)
+        st.error(f"❌ Failed to connect to Hopsworks: {str(e)}")
+        return False
 
-# Load available cities with multiple fallback strategies
-def load_available_cities(fs):
+# Load cities with multiple retrieval strategies
+def load_cities():
     try:
-        # Try direct feature view access
-        fv = fs.get_feature_view("karachi_aqi_features", 1)
+        logger.debug("Loading cities from feature store...")
+        
+        # Method 1: Try direct feature view access
+        fv = st.session_state.fs.get_feature_view("karachi_aqi_features", 1)
         data = fv.get_batch_data()
         
+        # Convert to DataFrame if needed
         if not isinstance(data, pd.DataFrame):
             data = data.to_pandas()
         
+        logger.debug(f"Data columns: {data.columns.tolist()}")
+        logger.debug(f"Sample data:\n{data.head(2)}")
+        
+        # Verify city column exists
         if 'city' not in data.columns:
             raise ValueError("'city' column not found in feature data")
             
@@ -73,16 +78,17 @@ def load_available_cities(fs):
         return cities
         
     except Exception as e:
-        logger.error(f"City loading failed: {str(e)}")
-        st.error("⚠️ Could not load city list from feature store")
+        logger.error(f"Failed to load cities: {str(e)}", exc_info=True)
+        st.error(f"⚠️ City loading error: {str(e)}")
         return []
 
-# Get most recent data for a city with comprehensive validation
-def get_city_data(fs, city):
+# Get city data with comprehensive validation
+def get_city_data(city):
     try:
-        fv = fs.get_feature_view("karachi_aqi_features", 1)
+        logger.debug(f"Loading data for {city}...")
+        fv = st.session_state.fs.get_feature_view("karachi_aqi_features", 1)
         
-        # Method 1: Optimized Hopsworks query
+        # Method 1: Optimized query
         try:
             query = fv.select_all().filter(fv.city == city)
             city_data = query.read()
@@ -93,7 +99,7 @@ def get_city_data(fs, city):
                 all_data = all_data.to_pandas()
             city_data = all_data[all_data['city'] == city]
         
-        # Validation checks
+        # Validation
         if city_data.empty:
             raise ValueError(f"No records found for {city}")
             
@@ -102,12 +108,13 @@ def get_city_data(fs, city):
             
         # Get most recent record
         latest = city_data.sort_values('date', ascending=False).iloc[0]
+        logger.debug(f"Latest record:\n{latest}")
         
         # Validate all required fields
         required_fields = {
             'pm25': float,
             'pm10': float,
-            'temperature': float,
+            'temperature': float, 
             'humidity': float,
             'wind_speed': float
         }
@@ -121,35 +128,41 @@ def get_city_data(fs, city):
         return result
         
     except Exception as e:
-        logger.error(f"Data loading failed for {city}: {str(e)}")
-        st.error(f"⚠️ Could not load data for {city}")
+        logger.error(f"Data loading failed for {city}: {str(e)}", exc_info=True)
+        st.error(f"⚠️ Data load error for {city}: {str(e)}")
         return None
 
 # Generate forecast (replace with your actual model)
 def generate_forecast(current_data, pollutant):
     try:
-        # Get base value from current data
-        base_value = current_data[f'pm{pollutant.replace(".", "")}']
+        logger.debug(f"Generating {pollutant} forecast...")
+        
+        # Get base value
+        pollutant_key = pollutant.lower().replace(".", "")
+        base_value = current_data[f'pm{pollutant_key}']
         
         # Generate dates (next 3 days)
         dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") 
                 for i in range(1, 4)]
         
-        # Mock prediction - REPLACE WITH ACTUAL MODEL
+        # Mock predictions - REPLACE WITH ACTUAL MODEL
         predictions = [
             base_value * (1 + np.random.uniform(-0.1, 0.2)),
             base_value * (1 + np.random.uniform(-0.15, 0.25)),
             base_value * (1 + np.random.uniform(-0.2, 0.3))
         ]
         
-        return pd.DataFrame({
+        forecast_df = pd.DataFrame({
             'date': dates,
-            f'predicted_{pollutant.lower().replace(".", "")}': predictions
+            f'predicted_{pollutant_key}': predictions
         })
         
+        logger.debug(f"Forecast data:\n{forecast_df}")
+        return forecast_df
+        
     except Exception as e:
-        logger.error(f"Forecast failed: {str(e)}")
-        st.error("⚠️ Forecast generation failed")
+        logger.error(f"Forecast failed: {str(e)}", exc_info=True)
+        st.error(f"⚠️ Forecast error: {str(e)}")
         return None
 
 # UI Components
@@ -166,13 +179,13 @@ def display_current_metrics(city, data):
     
     st.caption(f"Last updated: {data['last_updated']}")
 
-def display_forecast(forecast, pollutant):
-    pollutant_col = f'predicted_{pollutant.lower().replace(".", "")}'
+def display_forecast_chart(forecast, pollutant):
+    pollutant_key = pollutant.lower().replace(".", "")
     
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=forecast['date'],
-        y=forecast[pollutant_col],
+        y=forecast[f'predicted_{pollutant_key}'],
         mode='lines+markers',
         name=f"{pollutant} Forecast",
         line=dict(color='#FFA15A', width=3)
@@ -198,39 +211,34 @@ def main():
         initial_sidebar_state="expanded"
     )
     
-    # Sidebar
-    st.sidebar.title("Settings")
-    
     # Connect to Hopsworks
-    if not st.session_state.fs_connected:
-        with st.spinner("Connecting to Feature Store..."):
-            fs = connect_feature_store()
-            if not fs:
+    if st.session_state.fs is None:
+        with st.spinner("Connecting to Hopsworks..."):
+            if not connect_to_hopsworks():
                 st.stop()
     
     # Load cities
     if not st.session_state.cities:
-        with st.spinner("Loading available cities..."):
-            st.session_state.cities = load_available_cities(st.session_state.feature_store)
+        with st.spinner("Loading cities..."):
+            st.session_state.cities = load_cities()
             if not st.session_state.cities:
                 st.error("No cities available - check feature store")
                 st.stop()
     
-    # City selection
+    # Sidebar controls
+    st.sidebar.title("Settings")
     selected_city = st.sidebar.selectbox(
         "Select City", 
         st.session_state.cities,
         key='city_select'
     )
     
-    # Pollutant selection
     st.session_state.pollutant = st.sidebar.selectbox(
         "Select Pollutant",
         ['PM2.5', 'PM10'],
         key='pollutant_select'
     )
     
-    # Refresh button
     if st.sidebar.button("🔄 Refresh Data"):
         st.session_state.current_data.pop(selected_city, None)
         st.session_state.forecasts.pop(selected_city, None)
@@ -242,10 +250,7 @@ def main():
     # Load current data
     if selected_city not in st.session_state.current_data:
         with st.spinner(f"Loading {selected_city} data..."):
-            st.session_state.current_data[selected_city] = get_city_data(
-                st.session_state.feature_store,
-                selected_city
-            )
+            st.session_state.current_data[selected_city] = get_city_data(selected_city)
     
     # Display data
     current_data = st.session_state.current_data.get(selected_city)
@@ -262,7 +267,7 @@ def main():
         
         forecast = st.session_state.forecasts.get(selected_city)
         if forecast is not None:
-            display_forecast(forecast, st.session_state.pollutant)
+            display_forecast_chart(forecast, st.session_state.pollutant)
     else:
         st.error(f"Failed to load data for {selected_city}")
 
