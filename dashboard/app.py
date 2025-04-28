@@ -62,7 +62,7 @@ def connect_to_hopsworks():
         return False
 
 def load_cities_from_hopsworks():
-    """Load cities from Hopsworks feature store"""
+    """Load cities from Hopsworks feature store using the correct API"""
     if not st.session_state.feature_store:
         return []
     
@@ -72,12 +72,17 @@ def load_cities_from_hopsworks():
             name="karachi_aqi_features", 
             version=1
         )
-        cities_df = feature_view.select(["city"]).to_pandas()
+        
+        # Get batch data using the current API
+        feature_data = feature_view.get_batch_data()
         
         if time.time() - start_time > DATA_LOAD_TIMEOUT:
             raise TimeoutError("City data loading timed out")
             
-        cities = cities_df["city"].unique().tolist()
+        if not isinstance(feature_data, pd.DataFrame):
+            feature_data = feature_data.to_pandas()
+            
+        cities = feature_data["city"].unique().tolist()
         st.session_state.cities = cities
         logger.info(f"Loaded {len(cities)} cities from Hopsworks")
         return cities
@@ -87,7 +92,7 @@ def load_cities_from_hopsworks():
         return []
 
 def load_city_data(city):
-    """Load current data for a specific city"""
+    """Load current data for a specific city using the correct API"""
     if not st.session_state.feature_store:
         return None
     
@@ -97,21 +102,26 @@ def load_city_data(city):
             version=1
         )
         
-        # Get most recent record for the city
-        df = feature_view.filter(
-            feature_view.city == city
-        ).to_pandas().sort_values('date', ascending=False).head(1)
+        # Get batch data using the current API
+        feature_data = feature_view.get_batch_data()
         
-        if df.empty:
+        if not isinstance(feature_data, pd.DataFrame):
+            feature_data = feature_data.to_pandas()
+        
+        # Filter for the selected city and get most recent record
+        city_data = feature_data[feature_data["city"] == city]
+        if city_data.empty:
             logger.warning(f"No data found for city: {city}")
             return None
             
+        latest_record = city_data.sort_values('date', ascending=False).iloc[0]
+        
         current_data = {
-            'pm25': df['pm25'].values[0],
-            'pm10': df['pm10'].values[0],
-            'temperature': df['temperature'].values[0],
-            'humidity': df['humidity'].values[0],
-            'wind_speed': df['wind_speed'].values[0]
+            'pm25': latest_record['pm25'],
+            'pm10': latest_record['pm10'],
+            'temperature': latest_record['temperature'],
+            'humidity': latest_record['humidity'],
+            'wind_speed': latest_record['wind_speed']
         }
         
         st.session_state.last_update[city] = datetime.now()
