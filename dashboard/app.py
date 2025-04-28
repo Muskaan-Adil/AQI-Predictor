@@ -231,7 +231,7 @@ def main():
     )
     
     # Refresh button
-    if st.sidebar.button("🔄 Refresh Data"):
+    if st.sidebar.button("Refresh Data"):
         st.session_state.current_data.pop(selected_city, None)
         st.session_state.forecasts.pop(selected_city, None)
         st.rerun()
