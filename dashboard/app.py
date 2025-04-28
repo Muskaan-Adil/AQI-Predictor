@@ -11,17 +11,11 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import hopsworks
-import plotly.graph_objects as go
 from utils.config import Config
-from models.model_registry import ModelRegistry
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)  # Changed to DEBUG for more details
 logger = logging.getLogger(__name__)
-
-# Constants
-CONNECTION_TIMEOUT = 30  # seconds
-DATA_LOAD_TIMEOUT = 20  # seconds
 
 # Streamlit config
 st.set_page_config(
@@ -32,20 +26,21 @@ st.set_page_config(
 
 def initialize_session_state():
     """Initialize all session state variables"""
-    if 'feature_store' not in st.session_state:
-        st.session_state.feature_store = None
-    if 'cities' not in st.session_state:
-        st.session_state.cities = []
-    if 'current_data' not in st.session_state:
-        st.session_state.current_data = {}
-    if 'last_update' not in st.session_state:
-        st.session_state.last_update = {}
+    defaults = {
+        'feature_store': None,
+        'cities': [],
+        'current_data': {},
+        'last_update': {},
+        'connection_status': None
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 def connect_to_hopsworks():
-    """Establish connection to Hopsworks with timeout"""
-    start_time = time.time()
-    
+    """Establish connection to Hopsworks with detailed error handling"""
     try:
+        logger.debug("Attempting to connect to Hopsworks...")
         project = hopsworks.login(
             project=Config.HOPSWORKS_PROJECT_NAME,
             api_key_value=Config.HOPSWORKS_API_KEY,
@@ -54,87 +49,142 @@ def connect_to_hopsworks():
             hostname_verification=False
         )
         st.session_state.feature_store = project.get_feature_store()
+        st.session_state.connection_status = "connected"
         logger.info("Successfully connected to Hopsworks")
         return True
     except Exception as e:
-        logger.error(f"Hopsworks connection failed: {str(e)}")
-        st.error(f"Failed to connect to Hopsworks: {str(e)}")
+        logger.error(f"Hopsworks connection failed: {str(e)}", exc_info=True)
+        st.session_state.connection_status = f"failed: {str(e)}"
         return False
 
-def load_cities_from_hopsworks():
-    """Load cities from Hopsworks feature store using the correct API"""
-    if not st.session_state.feature_store:
-        return []
-    
+def load_feature_data():
+    """Load all feature data with comprehensive error handling"""
     try:
-        start_time = time.time()
+        logger.debug("Loading feature data...")
         feature_view = st.session_state.feature_store.get_feature_view(
             name="karachi_aqi_features", 
             version=1
         )
         
-        # Get batch data using the current API
+        # Get data with timeout protection
+        start_time = time.time()
         feature_data = feature_view.get_batch_data()
         
-        if time.time() - start_time > DATA_LOAD_TIMEOUT:
-            raise TimeoutError("City data loading timed out")
-            
+        # Convert to pandas if needed
         if not isinstance(feature_data, pd.DataFrame):
             feature_data = feature_data.to_pandas()
-            
-        cities = feature_data["city"].unique().tolist()
-        st.session_state.cities = cities
-        logger.info(f"Loaded {len(cities)} cities from Hopsworks")
-        return cities
+        
+        logger.debug(f"Data loaded successfully. Columns: {feature_data.columns.tolist()}")
+        logger.debug(f"Sample data:\n{feature_data.head(2)}")
+        
+        return feature_data
+    
     except Exception as e:
-        logger.error(f"Failed to load cities: {str(e)}")
-        st.error(f"City data unavailable: {str(e)}")
+        logger.error(f"Failed to load feature data: {str(e)}", exc_info=True)
+        st.error(f"Data loading error: {str(e)}")
+        return None
+
+def load_cities():
+    """Load cities from feature data with validation"""
+    feature_data = load_feature_data()
+    if feature_data is None:
+        return []
+    
+    try:
+        if 'city' not in feature_data.columns:
+            raise ValueError("'city' column not found in feature data")
+            
+        cities = feature_data['city'].unique().tolist()
+        if not cities:
+            raise ValueError("No cities found in feature data")
+            
+        logger.debug(f"Found cities: {cities}")
+        return cities
+        
+    except Exception as e:
+        logger.error(f"Failed to extract cities: {str(e)}")
+        st.error(f"City data error: {str(e)}")
         return []
 
 def load_city_data(city):
-    """Load current data for a specific city using the correct API"""
-    if not st.session_state.feature_store:
+    """Load data for specific city with validation"""
+    feature_data = load_feature_data()
+    if feature_data is None:
         return None
     
     try:
-        feature_view = st.session_state.feature_store.get_feature_view(
-            name="karachi_aqi_features", 
-            version=1
-        )
+        # Validate city exists
+        if city not in feature_data['city'].values:
+            raise ValueError(f"City '{city}' not found in data")
         
-        # Get batch data using the current API
-        feature_data = feature_view.get_batch_data()
-        
-        if not isinstance(feature_data, pd.DataFrame):
-            feature_data = feature_data.to_pandas()
-        
-        # Filter for the selected city and get most recent record
-        city_data = feature_data[feature_data["city"] == city]
+        # Filter and sort data
+        city_data = feature_data[feature_data['city'] == city]
         if city_data.empty:
-            logger.warning(f"No data found for city: {city}")
-            return None
+            raise ValueError(f"No records found for city '{city}'")
             
+        # Get latest record
         latest_record = city_data.sort_values('date', ascending=False).iloc[0]
         
-        current_data = {
-            'pm25': latest_record['pm25'],
-            'pm10': latest_record['pm10'],
-            'temperature': latest_record['temperature'],
-            'humidity': latest_record['humidity'],
-            'wind_speed': latest_record['wind_speed']
+        # Validate required fields
+        required_fields = ['pm25', 'pm10', 'temperature', 'humidity', 'wind_speed']
+        for field in required_fields:
+            if field not in latest_record:
+                raise ValueError(f"Missing required field: {field}")
+        
+        data = {
+            'pm25': float(latest_record['pm25']),
+            'pm10': float(latest_record['pm10']),
+            'temperature': float(latest_record['temperature']),
+            'humidity': float(latest_record['humidity']),
+            'wind_speed': float(latest_record['wind_speed'])
         }
         
-        st.session_state.last_update[city] = datetime.now()
-        return current_data
+        logger.debug(f"Loaded data for {city}: {data}")
+        return data
         
     except Exception as e:
         logger.error(f"Failed to load data for {city}: {str(e)}")
         return None
 
-def display_city_metrics(city, data):
-    """Display metrics for a city"""
-    st.subheader(f"Current Air Quality: {city}")
+def display_ui():
+    """Main UI rendering with status information"""
+    st.sidebar.title("AQI Dashboard")
+    st.sidebar.write(f"**Connection Status:** {st.session_state.connection_status or 'Not attempted'}")
     
+    if not st.session_state.cities:
+        st.sidebar.warning("No cities available")
+    else:
+        selected_city = st.sidebar.selectbox(
+            "Select City", 
+            st.session_state.cities,
+            key="city_select"
+        )
+        
+        if st.sidebar.button("🔄 Refresh Data"):
+            st.session_state.current_data.pop(selected_city, None)
+            st.rerun()
+            
+        if selected_city not in st.session_state.current_data:
+            with st.spinner(f"Loading data for {selected_city}..."):
+                st.session_state.current_data[selected_city] = load_city_data(selected_city)
+        
+        if st.session_state.current_data.get(selected_city):
+            display_city_metrics(selected_city)
+        else:
+            st.error(f"Could not load data for {selected_city}")
+            st.write("Possible issues:")
+            st.write("- The city exists but has no records")
+            st.write("- Required fields are missing in the data")
+            st.write("- Feature store permissions may be insufficient")
+
+def display_city_metrics(city):
+    """Display metrics for a city"""
+    data = st.session_state.current_data[city]
+    
+    st.title(f"Air Quality: {city}")
+    
+    # Current Conditions
+    st.header("Current Conditions")
     cols = st.columns(4)
     with cols[0]:
         st.metric("PM2.5", f"{data['pm25']:.1f} µg/m³")
@@ -154,37 +204,15 @@ def main():
     # Connect to Hopsworks if not already connected
     if st.session_state.feature_store is None:
         with st.spinner("Connecting to Hopsworks..."):
-            if not connect_to_hopsworks():
-                st.error("Critical error: Could not connect to Hopsworks")
-                st.stop()
+            connect_to_hopsworks()
     
-    # Load cities
-    if not st.session_state.cities:
-        with st.spinner("Loading city list..."):
-            cities = load_cities_from_hopsworks()
-            if not cities:
-                st.error("No cities available - please check your feature store")
-                st.stop()
+    # Load cities if not already loaded
+    if not st.session_state.cities and st.session_state.feature_store:
+        with st.spinner("Loading city data..."):
+            st.session_state.cities = load_cities()
     
-    # Sidebar controls
-    st.sidebar.title("AQI Dashboard")
-    selected_city = st.sidebar.selectbox(
-        "Select City", 
-        st.session_state.cities,
-        key="city_select"
-    )
-    
-    refresh_button = st.sidebar.button("Refresh Data")
-    
-    # Main content
-    if refresh_button or selected_city not in st.session_state.current_data:
-        with st.spinner(f"Loading data for {selected_city}..."):
-            st.session_state.current_data[selected_city] = load_city_data(selected_city)
-    
-    if st.session_state.current_data.get(selected_city):
-        display_city_metrics(selected_city, st.session_state.current_data[selected_city])
-    else:
-        st.error(f"Could not load data for {selected_city}")
+    # Main UI
+    display_ui()
 
 if __name__ == "__main__":
     main()
