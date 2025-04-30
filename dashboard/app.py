@@ -10,9 +10,6 @@ import streamlit as st
 import shap
 import matplotlib.pyplot as plt
 import joblib
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
 from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
 # Configure logging
@@ -26,7 +23,7 @@ try:
 except ImportError:
     class Config:
         HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
-        HOPSWORKS_API_KEY = "ouFZ8BhcXFbDQy7S.GDkj3eGXwA4BgwzKSWqeEi53jUsd1fYSf22pxCnqG0tBZTM9RSTE2z1T64N7SErS"
+        HOPSWORKS_API_KEY = "your_api_key_here"
         HOPSWORKS_HOST = "c.app.hopsworks.ai"
 
 # Initialize session state
@@ -52,54 +49,86 @@ def init_session_state():
         if key not in st.session_state:
             st.session_state[key] = val
 
-def deploy_model(feature_store, model_registry, pollutant='pm25'):
+def deploy_model(model_registry, pollutant='pm25'):
+    """Deploys the latest version of an existing model from registry"""
+    model_name = f"Karachi_{pollutant}"
+    
     try:
-        st.info(f"⚙️ Deploying new {pollutant} model...")
+        # Get all versions of the model
+        existing_models = model_registry.get_models(model_name)
+        if not existing_models:
+            st.warning(f"No existing {model_name} model found in registry")
+            return None
+
+        # Get the latest version
+        latest_model = sorted(existing_models, key=lambda m: m.version, reverse=True)[0]
+        st.success(f"🚀 Found {model_name} v{latest_model.version} in registry")
+
+        # Download and load the model
+        model_dir = latest_model.download()
         
-        # 1. Get training data
-        fv = feature_store.get_feature_view("karachi_aqi_features", 1)
-        df = fv.get_batch_data()
-        if not isinstance(df, pd.DataFrame):
-            df = df.to_pandas()
+        # Try possible model file locations
+        possible_paths = [
+            Path(model_dir) / "artifacts/model.pkl",
+            Path(model_dir) / "model.pkl",
+            Path(model_dir) / f"{model_name}.pkl"
+        ]
         
-        # 2. Prepare data
-        features = df[['temperature', 'humidity', 'wind_speed', 'pressure', 'precipitation']]
-        target = df[pollutant.lower()]
-        X_train, X_test, y_train, y_test = train_test_split(features, target, test_size=0.2, random_state=42)
-        
-        # 3. Train model
-        model = RandomForestRegressor(n_estimators=100, random_state=42)
-        model.fit(X_train, y_train)
-        
-        # 4. Evaluate
-        y_pred = model.predict(X_test)
-        rmse = mean_squared_error(y_test, y_pred, squared=False)
-        
-        # 5. Save model in proper directory structure
-        model_dir = f"{pollutant}_model"
-        artifacts_dir = Path(model_dir) / "artifacts"
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        
-        model_path = artifacts_dir / "model.pkl"
-        joblib.dump(model, model_path)
-        
-        # 6. Register model
-        model_spec = {
-            "name": f"Karachi_{pollutant}",
-            "metrics": {"rmse": rmse},
-            "description": f"Random Forest model for {pollutant} prediction",
-            "input_example": X_train.iloc[[0]].to_dict()
-        }
-        model_registry.python.create_model(**model_spec)
-        
-        # 7. Upload model
-        model_registry.get_model(f"Karachi_{pollutant}", version=1).upload(model_dir)
-        
-        st.success(f"✅ Successfully deployed {pollutant} model (RMSE: {rmse:.2f})!")
-        return True
+        for path in possible_paths:
+            if path.exists():
+                model = joblib.load(path)
+                st.success(f"✅ Successfully loaded {model_name} v{latest_model.version}")
+                return model
+
+        raise FileNotFoundError(f"Model file not found in {model_dir}")
+
     except Exception as e:
-        st.error(f"🚨 Model deployment failed: {str(e)}")
-        logger.error(f"Model deployment error: {str(e)}")
+        st.error(f"Failed to deploy {model_name}: {str(e)}")
+        logger.error(f"Model deployment error for {model_name}: {str(e)}")
+        return None
+
+def load_models(model_registry):
+    """Loads latest versions of all existing models from registry"""
+    try:
+        model_status = {
+            'pm25': {'loaded': False, 'version': None},
+            'pm10': {'loaded': False, 'version': None}
+        }
+
+        # Process each pollutant model
+        for pollutant in ['pm25', 'pm10']:
+            model_name = f"Karachi_{pollutant}"
+            
+            # Deploy latest version
+            model = deploy_model(model_registry, pollutant)
+            if not model:
+                continue
+                
+            # Get the actual deployed version
+            models = model_registry.get_models(model_name)
+            latest_version = sorted(models, key=lambda m: m.version, reverse=True)[0].version
+            
+            # Update session state
+            if pollutant == 'pm25':
+                st.session_state.model_pm25 = model
+                st.session_state.explainer_pm25 = shap.TreeExplainer(model)
+            else:
+                st.session_state.model_pm10 = model
+                st.session_state.explainer_pm10 = shap.TreeExplainer(model)
+                
+            model_status[pollutant]['loaded'] = True
+            model_status[pollutant]['version'] = latest_version
+            st.session_state.model_versions[pollutant] = latest_version
+
+        # Verify at least one model loaded
+        if not any(status['loaded'] for status in model_status.values()):
+            raise RuntimeError("No models could be loaded from registry")
+            
+        return True
+
+    except Exception as e:
+        logger.error(f"Model loading failed: {str(e)}")
+        st.error("⚠️ Critical: Could not load any models from registry")
         return False
 
 def connect_feature_store():
@@ -133,7 +162,6 @@ def check_model_freshness(model_registry, model_name):
         
         # Handle timestamp conversion
         if isinstance(latest_model.created, (int, float)):
-            # Convert from milliseconds to seconds if necessary
             creation_time = datetime.fromtimestamp(latest_model.created / 1000)
         else:
             creation_time = latest_model.created.replace(tzinfo=None)
@@ -141,72 +169,6 @@ def check_model_freshness(model_registry, model_name):
         return (datetime.now() - creation_time) < timedelta(hours=24)
     except Exception as e:
         logger.error(f"Error checking model freshness: {str(e)}")
-        return False
-
-def load_models(model_registry, feature_store):
-    try:
-        # Try to load existing models
-        pm25_models = model_registry.get_models("Karachi_pm25")
-        pm10_models = model_registry.get_models("Karachi_pm10")
-        
-        # Deploy if missing
-        if not pm25_models:
-            if not deploy_model(feature_store, model_registry, 'pm25'):
-                return False
-            pm25_models = model_registry.get_models("Karachi_pm25")
-            
-        if not pm10_models:
-            if not deploy_model(feature_store, model_registry, 'pm10'):
-                return False
-            pm10_models = model_registry.get_models("Karachi_pm10")
-        
-        # Get latest versions
-        latest_pm25 = sorted(pm25_models, key=lambda m: m.version, reverse=True)[0]
-        latest_pm10 = sorted(pm10_models, key=lambda m: m.version, reverse=True)[0]
-        
-        # Check if update needed
-        current_versions = st.session_state.model_versions
-        new_versions = {
-            'pm25': latest_pm25.version,
-            'pm10': latest_pm10.version
-        }
-        
-        # Load PM2.5 model if needed
-        if current_versions['pm25'] != new_versions['pm25'] or not st.session_state.model_pm25:
-            model_dir = latest_pm25.download()
-            try:
-                model = joblib.load(f"{model_dir}/artifacts/model.pkl")
-            except FileNotFoundError:
-                model = joblib.load(f"{model_dir}/model.pkl")
-                
-            st.session_state.model_pm25 = model
-            st.session_state.explainer_pm25 = shap.TreeExplainer(model)
-            st.session_state.model_versions['pm25'] = latest_pm25.version
-            logger.info(f"Loaded PM2.5 model v{latest_pm25.version}")
-        
-        # Load PM10 model if needed
-        if current_versions['pm10'] != new_versions['pm10'] or not st.session_state.model_pm10:
-            model_dir = latest_pm10.download()
-            try:
-                model = joblib.load(f"{model_dir}/artifacts/model.pkl")
-            except FileNotFoundError:
-                model = joblib.load(f"{model_dir}/model.pkl")
-                
-            st.session_state.model_pm10 = model
-            st.session_state.explainer_pm10 = shap.TreeExplainer(model)
-            st.session_state.model_versions['pm10'] = latest_pm10.version
-            logger.info(f"Loaded PM10 model v{latest_pm10.version}")
-        
-        # Notify if updated
-        if current_versions != new_versions:
-            st.toast("New model versions loaded! Forecasts will be regenerated.", icon="🔄")
-            st.session_state.forecasts = {}
-            
-        return True
-        
-    except Exception as e:
-        logger.error(f"Model loading failed: {str(e)}")
-        st.error("⚠️ Could not load models from registry")
         return False
 
 def load_available_cities(fs):
@@ -248,14 +210,12 @@ def get_city_data(fs, city):
         if city_data.empty:
             raise ValueError(f"No records found for {city}")
             
-        # Handle date conversion
         if 'date' not in city_data.columns:
             if 'datetime' in city_data.columns and is_datetime(city_data['datetime']):
                 city_data = city_data.rename(columns={'datetime': 'date'})
             else:
                 raise ValueError("No valid date column found")
         
-        # Convert to datetime if needed
         if not is_datetime(city_data['date']):
             city_data['date'] = pd.to_datetime(city_data['date'])
             
@@ -431,13 +391,13 @@ def main():
     st.sidebar.title("Settings")
     
     if not st.session_state.fs_connected:
-        with st.spinner("Connecting to Feature Store..."):
+        with st.spinner("Connecting to Hopsworks..."):
             fs, mr = connect_feature_store()
             if not fs:
                 st.stop()
             
-            with st.spinner("Loading prediction models..."):
-                if not load_models(mr, fs):
+            with st.spinner("Deploying latest models..."):
+                if not load_models(mr):
                     st.stop()
     
     if (not st.session_state.last_model_check or 
@@ -447,7 +407,7 @@ def main():
             pm10_fresh = check_model_freshness(st.session_state.model_registry, "Karachi_pm10")
             
             if pm25_fresh or pm10_fresh:
-                load_models(st.session_state.model_registry, st.session_state.feature_store)
+                load_models(st.session_state.model_registry)
             
             st.session_state.last_model_check = datetime.now()
     
@@ -476,7 +436,7 @@ def main():
         st.session_state.shap_values = None
         st.rerun()
     
-    st.title(f"Karachi Air Quality Dashboard: {selected_city}")
+    st.title(f"Air Quality Dashboard: {selected_city}")
     
     if selected_city not in st.session_state.current_data:
         with st.spinner(f"Loading {selected_city} data..."):
