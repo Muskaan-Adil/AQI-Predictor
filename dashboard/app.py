@@ -6,8 +6,11 @@ import yaml
 import hopsworks
 import os
 
-# Import project modules
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.config import Config
+
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
 from evaluation.feature_importance import FeatureImportanceAnalyzer
