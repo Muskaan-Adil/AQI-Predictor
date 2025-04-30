@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 
 # Configure page
@@ -34,22 +33,60 @@ def generate_mock_data():
     
     return current, forecast
 
-# Feature importance visualization
-def mock_shap_explanation():
+# Enhanced feature importance visualization
+def enhanced_shap_explanation():
     features = ['Temperature', 'Humidity', 'Wind Speed', 'Traffic', 'Industrial Activity']
     values = np.random.randn(5) * 10
-    fig, ax = plt.subplots()
-    ax.barh(features, values, color=['#FF6B6B' if x > 0 else '#4ECDC4' for x in values])
-    ax.set_title("Factors Affecting Air Quality")
-    ax.set_xlabel("Impact on AQI")
-    plt.tight_layout()
+    
+    # Create a more aesthetic horizontal bar chart with Plotly
+    fig = go.Figure()
+    
+    for feature, value in zip(features, values):
+        color = '#FF6B6B' if value > 0 else '#4ECDC4'
+        fig.add_trace(go.Bar(
+            y=[feature],
+            x=[abs(value)],
+            orientation='h',
+            marker_color=color,
+            name=feature,
+            hovertemplate=f"<b>{feature}</b>: %{{x:.1f}}<extra></extra>",
+            width=0.6
+        ))
+    
+    fig.update_layout(
+        title="<b>Key Factors Affecting Air Quality</b>",
+        title_font_size=18,
+        xaxis_title="<b>Impact on AQI (Positive = Increases Pollution)</b>",
+        yaxis_title="<b>Factors</b>",
+        showlegend=False,
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        height=400,
+        margin=dict(l=100, r=50, b=80, t=80, pad=10),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial"
+        )
+    )
+    
+    # Add impact direction indicators
+    fig.update_traces(
+        texttemplate='%{x:.1f}',
+        textposition='outside',
+        textfont_size=12
+    )
+    
+    # Add reference line at zero
+    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="gray")
+    
     return fig
 
 # Main dashboard
 def main():
     st.sidebar.title("Settings")
     
-    # City selection (only Karachi available)
+    # City selection
     selected_city = st.sidebar.selectbox(
         "Select City",
         ["Karachi"],
@@ -103,10 +140,10 @@ def main():
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Factor analysis
+    # Enhanced factor analysis
     st.subheader("Key Contributing Factors")
-    shap_fig = mock_shap_explanation()
-    st.pyplot(shap_fig)
+    shap_fig = enhanced_shap_explanation()
+    st.plotly_chart(shap_fig, use_container_width=True)
 
 if __name__ == "__main__":
     main()
