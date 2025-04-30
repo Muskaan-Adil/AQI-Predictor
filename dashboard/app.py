@@ -2,13 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import os
-import sys
+import yaml
 import hopsworks
+import os
 
 # Import project modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.config import Config
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
@@ -40,6 +38,16 @@ except Exception as e:
     st.error(f"Failed to connect to Hopsworks: {e}")
     st.stop()
 
+# Load city names from cities.yaml
+def load_cities():
+    try:
+        with open("cities.yaml", "r") as file:
+            cities = yaml.safe_load(file)
+            return [city["name"] for city in cities]
+    except Exception as e:
+        st.error(f"Error loading cities from YAML: {e}")
+        return []
+
 # Initialize collectors
 data_collector = DataCollector(
     api_key_aqicn=Config.AQICN_API_KEY,
@@ -57,32 +65,24 @@ if 'feature_importances' not in st.session_state:
 
 # Helper Functions
 
-def load_cities():
-    return [city['name'] for city in Config.CITIES]
+def load_feature_view_data(city):
+    feature_view = feature_store.get_feature_view("karachi_aqi_features")
+    feature_data = feature_view.select(["city", "pm25", "pm10", "temperature", "humidity", "wind_speed"]).filter("city == ?", city).to_pandas()
+    return feature_data
 
 def load_current_data(city):
-    city_info = next((c for c in Config.CITIES if c['name'] == city), None)
-    if not city_info:
-        st.error(f"City '{city}' not found in configuration.")
-        return None
-    try:
-        raw_data = data_collector.collect_data(city_info)
-        if raw_data:
-            aqi_data = raw_data.get('aqi', {})
-            weather_data = raw_data.get('weather', {})
-            st.session_state.current_data[city] = {
-                'pm25': aqi_data.get(data_collector.default_parameter),
-                'pm10': aqi_data.get('pm10'),
-                'temperature': weather_data.get('main', {}).get('temp'),
-                'humidity': weather_data.get('main', {}).get('humidity'),
-                'wind_speed': weather_data.get('wind', {}).get('speed')
-            }
-            return st.session_state.current_data[city]
-        else:
-            st.error(f"Failed to collect data for {city}.")
-            return None
-    except Exception as e:
-        st.error(f"Error loading data for {city}: {e}")
+    city_data = load_feature_view_data(city)
+    if city_data is not None and not city_data.empty:
+        st.session_state.current_data[city] = {
+            'pm25': city_data['pm25'].iloc[-1],
+            'pm10': city_data['pm10'].iloc[-1],
+            'temperature': city_data['temperature'].iloc[-1],
+            'humidity': city_data['humidity'].iloc[-1],
+            'wind_speed': city_data['wind_speed'].iloc[-1]
+        }
+        return st.session_state.current_data[city]
+    else:
+        st.error(f"Failed to collect data for {city}.")
         return None
 
 def prepare_input_features(city):
@@ -132,9 +132,9 @@ def get_feature_importance(city):
 st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("---")
 cities = load_cities()
-selected_city = st.sidebar.selectbox("🏠 Select City", cities)
+selected_city = st.sidebar.selectbox("Select City", cities)
 selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
-if st.sidebar.button("🔄 Refresh"):
+if st.sidebar.button("Refresh"):
     load_current_data(selected_city)
     st.session_state.forecasts.pop(selected_city, None)
     st.session_state.feature_importances.pop(selected_city, None)
