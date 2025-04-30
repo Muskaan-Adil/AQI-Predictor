@@ -64,23 +64,20 @@ def deploy_model(model_registry, pollutant='pm25'):
         latest_model = sorted(existing_models, key=lambda m: m.version, reverse=True)[0]
         st.success(f"🚀 Found {model_name} v{latest_model.version} in registry")
 
-        # Download and load the model
+        # Download the model
         model_dir = latest_model.download()
         
-        # Try possible model file locations
-        possible_paths = [
-            Path(model_dir) / "artifacts/model.pkl",
-            Path(model_dir) / "model.pkl",
-            Path(model_dir) / f"{model_name}.pkl"
-        ]
+        # Search for .joblib files recursively
+        model_files = list(Path(model_dir).rglob("*.joblib")
         
-        for path in possible_paths:
-            if path.exists():
-                model = joblib.load(path)
-                st.success(f"✅ Successfully loaded {model_name} v{latest_model.version}")
-                return model
-
-        raise FileNotFoundError(f"Model file not found in {model_dir}")
+        if not model_files:
+            raise FileNotFoundError(f"No .joblib file found in {model_dir}")
+            
+        # Load the first found .joblib file
+        model_file = model_files[0]
+        model = joblib.load(model_file)
+        st.success(f"✅ Successfully loaded {model_name} from {model_file.name}")
+        return model
 
     except Exception as e:
         st.error(f"Failed to deploy {model_name}: {str(e)}")
@@ -90,45 +87,37 @@ def deploy_model(model_registry, pollutant='pm25'):
 def load_models(model_registry):
     """Loads latest versions of all existing models from registry"""
     try:
-        model_status = {
-            'pm25': {'loaded': False, 'version': None},
-            'pm10': {'loaded': False, 'version': None}
-        }
-
-        # Process each pollutant model
-        for pollutant in ['pm25', 'pm10']:
-            model_name = f"Karachi_{pollutant}"
+        # Try to load both models
+        pm25_model = deploy_model(model_registry, 'pm25')
+        pm10_model = deploy_model(model_registry, 'pm10')
+        
+        if not pm25_model and not pm10_model:
+            raise RuntimeError("No models could be loaded")
             
-            # Deploy latest version
-            model = deploy_model(model_registry, pollutant)
-            if not model:
-                continue
+        # Update session state with loaded models
+        if pm25_model:
+            st.session_state.model_pm25 = pm25_model
+            st.session_state.explainer_pm25 = shap.TreeExplainer(pm25_model)
+            # Get version number
+            pm25_models = model_registry.get_models("Karachi_pm25")
+            if pm25_models:
+                latest = sorted(pm25_models, key=lambda m: m.version, reverse=True)[0]
+                st.session_state.model_versions['pm25'] = latest.version
+            
+        if pm10_model:
+            st.session_state.model_pm10 = pm10_model
+            st.session_state.explainer_pm10 = shap.TreeExplainer(pm10_model)
+            # Get version number
+            pm10_models = model_registry.get_models("Karachi_pm10")
+            if pm10_models:
+                latest = sorted(pm10_models, key=lambda m: m.version, reverse=True)[0]
+                st.session_state.model_versions['pm10'] = latest.version
                 
-            # Get the actual deployed version
-            models = model_registry.get_models(model_name)
-            latest_version = sorted(models, key=lambda m: m.version, reverse=True)[0].version
-            
-            # Update session state
-            if pollutant == 'pm25':
-                st.session_state.model_pm25 = model
-                st.session_state.explainer_pm25 = shap.TreeExplainer(model)
-            else:
-                st.session_state.model_pm10 = model
-                st.session_state.explainer_pm10 = shap.TreeExplainer(model)
-                
-            model_status[pollutant]['loaded'] = True
-            model_status[pollutant]['version'] = latest_version
-            st.session_state.model_versions[pollutant] = latest_version
-
-        # Verify at least one model loaded
-        if not any(status['loaded'] for status in model_status.values()):
-            raise RuntimeError("No models could be loaded from registry")
-            
         return True
-
+        
     except Exception as e:
         logger.error(f"Model loading failed: {str(e)}")
-        st.error("⚠️ Critical: Could not load any models from registry")
+        st.error("⚠️ Could not load models from registry")
         return False
 
 def connect_feature_store():
@@ -436,7 +425,7 @@ def main():
         st.session_state.shap_values = None
         st.rerun()
     
-    st.title(f"Air Quality Dashboard: {selected_city}")
+    st.title(f"Karachi Air Quality Dashboard: {selected_city}")
     
     if selected_city not in st.session_state.current_data:
         with st.spinner(f"Loading {selected_city} data..."):
