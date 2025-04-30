@@ -30,8 +30,12 @@ def init_session_state():
         'pollutant': 'PM2.5',
         'last_update': None,
         'shap_values': None,
-        'model': None,
-        'explainer': None
+        'model_pm25': None,
+        'model_pm10': None,
+        'explainer_pm25': None,
+        'explainer_pm10': None,
+        'model_versions': {'pm25': None, 'pm10': None},
+        'last_model_check': None
     }
     for key, val in session_defaults.items():
         if key not in st.session_state:
@@ -60,7 +64,22 @@ def connect_feature_store():
         st.error(f"Error details: {str(e)}")
         return None, None
 
-# Load ML model from Hopsworks model registry
+def check_model_freshness(model_registry, model_name):
+    """Check if model was updated in the last 24 hours"""
+    try:
+        models = model_registry.get_models(model_name)
+        if not models:
+            return False
+            
+        latest_model = sorted(models, key=lambda m: m.version, reverse=True)[0]
+        creation_time = latest_model.created.replace(tzinfo=None)
+        time_since_update = datetime.now() - creation_time
+        return time_since_update < timedelta(hours=24)
+    except Exception as e:
+        logger.error(f"Error checking model freshness: {str(e)}")
+        return False
+
+# Load ML models from Hopsworks model registry
 def load_models(model_registry):
     try:
         # Get the latest versions of both models
@@ -74,28 +93,50 @@ def load_models(model_registry):
         latest_pm25 = sorted(pm25_models, key=lambda m: m.version, reverse=True)[0]
         latest_pm10 = sorted(pm10_models, key=lambda m: m.version, reverse=True)[0]
         
-        # Download and load models
-        model_dir_pm25 = latest_pm25.download()
-        model_pm25 = joblib.load(model_dir_pm25 + "/model.pkl")
-        explainer_pm25 = shap.TreeExplainer(model_pm25)
+        # Check if we need to update the models
+        current_versions = {
+            'pm25': st.session_state.model_versions.get('pm25'),
+            'pm10': st.session_state.model_versions.get('pm10')
+        }
         
-        model_dir_pm10 = latest_pm10.download()
-        model_pm10 = joblib.load(model_dir_pm10 + "/model.pkl")
-        explainer_pm10 = shap.TreeExplainer(model_pm10)
+        new_versions = {
+            'pm25': latest_pm25.version,
+            'pm10': latest_pm10.version
+        }
         
-        # Store in session state with version info
-        st.session_state.update({
-            'model_pm25': model_pm25,
-            'model_pm10': model_pm10,
-            'explainer_pm25': explainer_pm25,
-            'explainer_pm10': explainer_pm10,
-            'model_versions': {
-                'pm25': latest_pm25.version,
-                'pm10': latest_pm10.version
-            }
-        })
+        # Only download if versions changed or models aren't loaded
+        if (current_versions['pm25'] != new_versions['pm25'] or 
+            st.session_state.model_pm25 is None):
+            
+            model_dir_pm25 = latest_pm25.download()
+            model_pm25 = joblib.load(model_dir_pm25 + "/model.pkl")
+            explainer_pm25 = shap.TreeExplainer(model_pm25)
+            
+            st.session_state.model_pm25 = model_pm25
+            st.session_state.explainer_pm25 = explainer_pm25
+            st.session_state.model_versions['pm25'] = latest_pm25.version
+            
+            logger.info(f"Loaded PM2.5 model v{latest_pm25.version}")
         
-        logger.info(f"Loaded PM2.5 model v{latest_pm25.version} and PM10 model v{latest_pm10.version}")
+        if (current_versions['pm10'] != new_versions['pm10'] or 
+            st.session_state.model_pm10 is None):
+            
+            model_dir_pm10 = latest_pm10.download()
+            model_pm10 = joblib.load(model_dir_pm10 + "/model.pkl")
+            explainer_pm10 = shap.TreeExplainer(model_pm10)
+            
+            st.session_state.model_pm10 = model_pm10
+            st.session_state.explainer_pm10 = explainer_pm10
+            st.session_state.model_versions['pm10'] = latest_pm10.version
+            
+            logger.info(f"Loaded PM10 model v{latest_pm10.version}")
+        
+        # Show notification if models were updated
+        if (current_versions['pm25'] != new_versions['pm25'] or 
+            current_versions['pm10'] != new_versions['pm10']):
+            st.toast("New model versions loaded! Forecasts will be regenerated.", icon="🔄")
+            st.session_state.forecasts = {}  # Clear cached forecasts
+        
         return True
         
     except Exception as e:
@@ -107,7 +148,7 @@ def load_models(model_registry):
 def load_available_cities(fs):
     try:
         # Try direct feature view access
-        fv = fs.get_feature_view("aqi_features", 1)
+        fv = fs.get_feature_view("karachi_aqi_features", 1)
         data = fv.get_batch_data()
         
         if not isinstance(data, pd.DataFrame):
@@ -132,7 +173,7 @@ def load_available_cities(fs):
 # Get most recent data for a city with comprehensive validation
 def get_city_data(fs, city):
     try:
-        fv = fs.get_feature_view("aqi_features", 1)
+        fv = fs.get_feature_view("karachi_aqi_features", 1)
         
         # Method 1: Optimized Hopsworks query
         try:
@@ -187,7 +228,15 @@ def get_city_data(fs, city):
 # Generate forecast with SHAP explanations
 def generate_forecast(current_data, pollutant):
     try:
-        if st.session_state.model is None or st.session_state.explainer is None:
+        # Determine which model and explainer to use
+        if pollutant == 'PM2.5':
+            model = st.session_state.model_pm25
+            explainer = st.session_state.explainer_pm25
+        else:
+            model = st.session_state.model_pm10
+            explainer = st.session_state.explainer_pm10
+            
+        if model is None or explainer is None:
             raise ValueError("Model or explainer not loaded")
             
         # Prepare features for prediction
@@ -199,29 +248,35 @@ def generate_forecast(current_data, pollutant):
         dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") 
                 for i in range(1, 4)]
         
-        # Predict for each day (in reality you might have different features for future days)
+        # Predict for each day
         predictions = []
         shap_values_list = []
         
-        for _ in range(3):
-            # Predict (replace with your actual forecasting logic)
-            pred = st.session_state.model.predict(X)[0]
+        for i in range(3):
+            # Predict
+            pred = model.predict(X)[0]
             predictions.append(pred)
             
             # Calculate SHAP values
-            shap_values = st.session_state.explainer.shap_values(X)
+            shap_values = explainer.shap_values(X)
             shap_values_list.append(shap_values)
             
-            # For demo, modify features slightly for next prediction
-            X['temperature'] *= 1.02
-            X['humidity'] *= 0.98
+            # Modify features for next prediction (example logic)
+            if i == 0:
+                # Day 2: Slightly warmer, less humid
+                X['temperature'] *= 1.02
+                X['humidity'] *= 0.98
+            elif i == 1:
+                # Day 3: Windier
+                X['wind_speed'] *= 1.1
         
         # Store SHAP values for the first prediction
         st.session_state.shap_values = {
             'values': shap_values_list[0][0],  # First prediction's SHAP values
             'features': feature_names,
             'feature_values': feature_values,
-            'base_value': st.session_state.explainer.expected_value
+            'base_value': explainer.expected_value,
+            'pollutant': pollutant
         }
         
         return pd.DataFrame({
@@ -239,7 +294,7 @@ def display_shap_explanations():
     if st.session_state.shap_values is None:
         return
         
-    st.subheader("Feature Importance Explanation (SHAP Values)")
+    st.subheader(f"Feature Importance Explanation for {st.session_state.shap_values['pollutant']} (SHAP Values)")
     
     # Create SHAP explanation object
     shap_values = st.session_state.shap_values['values']
@@ -267,20 +322,34 @@ def display_shap_explanations():
     # Add interpretation help
     with st.expander("How to interpret SHAP values"):
         st.markdown("""
-        - **Blue bars**: Features reducing the prediction
-        - **Red bars**: Features increasing the prediction
+        - **Blue bars**: Features reducing the AQI prediction
+        - **Red bars**: Features increasing the AQI prediction
         - **Length**: Magnitude of the feature's impact
         - **Base value**: Average model output
-        - **f(x)**: Final prediction value
+        - **f(x)**: Final predicted AQI value
+        - **Feature values**: Current conditions shown in parentheses
         """)
 
 # UI Components
 def display_current_metrics(city, data):
-    # Add model version info to the display
     st.subheader(f"Current Air Quality in {city}")
     
+    # Display model versions if available
     if 'model_versions' in st.session_state:
         st.caption(f"Using models: PM2.5 v{st.session_state.model_versions['pm25']}, PM10 v{st.session_state.model_versions['pm10']}")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("PM2.5", f"{data['pm25']:.1f} µg/m³")
+        st.metric("Temperature", f"{data['temperature']:.1f} °C")
+    with col2:
+        st.metric("PM10", f"{data['pm10']:.1f} µg/m³")
+        st.metric("Humidity", f"{data['humidity']:.0f}%")
+    with col3:
+        st.metric("Wind Speed", f"{data['wind_speed']:.1f} m/s")
+        st.metric("Pressure", f"{data.get('pressure', 0):.1f} hPa")
+    
+    st.caption(f"Last updated: {data['last_updated']}")
 
 def display_forecast(forecast, pollutant):
     if forecast is None:
@@ -315,7 +384,7 @@ def main():
     
     # Page config
     st.set_page_config(
-        page_title="AQI Prediction Dashboard",
+        page_title="Karachi AQI Prediction Dashboard",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -330,9 +399,23 @@ def main():
             if not fs:
                 st.stop()
             
-            # Load model after connecting
-            with st.spinner("Loading prediction model..."):
-                load_model(mr)
+            # Load models after connecting
+            with st.spinner("Loading prediction models..."):
+                if not load_models(mr):
+                    st.stop()
+    
+    # Check for model updates periodically
+    if (st.session_state.last_model_check is None or 
+        (datetime.now() - st.session_state.last_model_check) > timedelta(minutes=30)):
+        
+        with st.spinner("Checking for model updates..."):
+            pm25_fresh = check_model_freshness(st.session_state.model_registry, "Karachi_pm25")
+            pm10_fresh = check_model_freshness(st.session_state.model_registry, "Karachi_pm10")
+            
+            if pm25_fresh or pm10_fresh:
+                load_models(st.session_state.model_registry)
+            
+            st.session_state.last_model_check = datetime.now()
     
     # Load cities
     if not st.session_state.cities:
@@ -364,7 +447,7 @@ def main():
         st.rerun()
     
     # Main content
-    st.title(f"Air Quality Dashboard: {selected_city}")
+    st.title(f"Karachi Air Quality Dashboard: {selected_city}")
     
     # Load current data
     if selected_city not in st.session_state.current_data:
