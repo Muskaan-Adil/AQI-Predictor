@@ -104,9 +104,6 @@ def main():
     st.subheader("Key Contributing Factors")
     shap_fig = mock_shap_explanation()
     st.pyplot(shap_fig)
-    
-    # Data disclaimer
-    st.warning("⚠️ This dashboard displays synthetic data for demonstration purposes only.")
 
 if __name__ == "__main__":
     main()
