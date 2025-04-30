@@ -11,26 +11,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Mock data generator
 def generate_mock_data():
     current = {
-        'pm25': 45.3,
+        'pm25': 45.3,  # Keep current data keys consistent (can stay as pm25)
         'pm10': 78.9,
-        'temperature': 32.4,
-        'humidity': 65,
-        'wind_speed': 12.5,
-        'pressure': 1013
+        # ... other values
     }
     
     dates = pd.date_range(start="2024-01-01", periods=3).strftime("%Y-%m-%d").tolist()
     forecast = {
         'date': dates,
-        'pm25': [current['pm25'] * (1 + i*0.15) for i in range(1,4)],
+        'pm2.5': [current['pm25'] * (1 + i*0.15) for i in range(1,4)],  # Changed key to pm2.5
         'pm10': [current['pm10'] * (1 + i*0.12) for i in range(1,4)]
     }
     
     return current, forecast
-
+    
 # Feature importance visualization
 def mock_shap_explanation():
     features = ['Temperature', 'Humidity', 'Wind Speed', 'Traffic', 'Industrial Activity']
