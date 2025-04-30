@@ -21,8 +21,6 @@ class Config:
     HOPSWORKS_HOST = "c.app.hopsworks.ai"
     HOPSWORKS_PROJECT_ID = "1219758"
     HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
-    FEATURE_STORE_NAME = "air_quality_featurestore"
-    MODEL_REGISTRY_NAME = "air_quality_models"
 
     @classmethod
     def get_project_root(cls) -> Path:
