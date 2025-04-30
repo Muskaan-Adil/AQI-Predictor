@@ -68,7 +68,7 @@ def deploy_model(model_registry, pollutant='pm25'):
         model_dir = latest_model.download()
         
         # Search for .joblib files recursively
-        model_files = list(Path(model_dir).rglob("*.joblib")
+        model_files = list(Path(model_dir).rglob("*.joblib"))
         
         if not model_files:
             raise FileNotFoundError(f"No .joblib file found in {model_dir}")
