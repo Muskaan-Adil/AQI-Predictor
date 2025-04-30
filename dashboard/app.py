@@ -142,12 +142,6 @@ def load_models(model_registry):
         st.error(f"⚠️ Model loading error: {str(e)}")
         return False
 
-[Rest of your functions remain exactly the same:
- connect_feature_store(), check_model_freshness(), 
- load_available_cities(), get_city_data(), 
- generate_forecast(), display_shap_explanations(),
- display_current_metrics(), display_forecast(), main()]
-
 def connect_feature_store():
     try:
         project = hopsworks.login(
