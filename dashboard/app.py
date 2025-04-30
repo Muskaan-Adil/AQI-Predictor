@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
+from datetime import datetime, timedelta
 
 # Configure page
 st.set_page_config(
@@ -15,13 +16,16 @@ def generate_mock_data():
     current = {
         'pm25': 45.3,
         'pm10': 78.9,
-        'temperature': 32.4,  # Corrected to lowercase
+        'temperature': 32.4,
         'humidity': 65,
         'wind_speed': 12.5,
         'pressure': 1013
     }
     
-    dates = pd.date_range(start="2024-01-01", periods=3).strftime("%Y-%m-%d").tolist()
+    # Get today's date and next 3 days
+    today = datetime.now()
+    dates = [(today + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(1, 4)]
+    
     forecast = {
         'date': dates,
         'pm2.5': [current['pm25'] * (1 + i*0.15) for i in range(1,4)],
