@@ -7,7 +7,12 @@ import numpy as np
 import hopsworks
 import plotly.graph_objects as go
 import streamlit as st
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.config import Config
+
 import shap
 import matplotlib.pyplot as plt
 import joblib
