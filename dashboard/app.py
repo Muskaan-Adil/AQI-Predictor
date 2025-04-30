@@ -1,4 +1,4 @@
-import sys
+1import sys
 from pathlib import Path
 import logging
 from datetime import datetime, timedelta
@@ -24,9 +24,9 @@ try:
     from utils.config import Config
 except ImportError:
     class Config:
-        HOPSWORKS_PROJECT_NAME = "your_project_name"
-        HOPSWORKS_API_KEY = "your_api_key"
-        HOPSWORKS_HOST = "your_host.app.hopsworks.ai"
+        HOPSWORKS_PROJECT_NAME = "AQI_Pred_10Pearls"
+        HOPSWORKS_API_KEY = "ouFZ8BhcXFbDQy7S.GDkj3eGXwA4BgwzKSWqeEi53jUsd1fYSf22pxCnqG0tBZTM9RSTE2z1T64N7SErS"
+        HOPSWORKS_HOST = "c.app.hopsworks.ai"
 
 # Initialize session state
 def init_session_state():
