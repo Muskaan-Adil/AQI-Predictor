@@ -61,27 +61,47 @@ def connect_feature_store():
         return None, None
 
 # Load ML model from Hopsworks model registry
-def load_model(model_registry):
+def load_models(model_registry):
     try:
-        # Get the latest model from registry
-        model = model_registry.get_model(
-            name="aqi_prediction_model",
-            version=1
-        )
-        model_dir = model.download()
-        model = joblib.load(model_dir + "/aqi_model.pkl")
+        # Get the latest versions of both models
+        pm25_models = model_registry.get_models("Karachi_pm25")
+        pm10_models = model_registry.get_models("Karachi_pm10")
         
-        # Create SHAP explainer
-        explainer = shap.TreeExplainer(model)
+        if not pm25_models or not pm10_models:
+            raise ValueError("One or both models not found in registry")
         
-        st.session_state.model = model
-        st.session_state.explainer = explainer
-        logger.info("Successfully loaded model and explainer")
-        return model, explainer
+        # Sort models by version and get the latest
+        latest_pm25 = sorted(pm25_models, key=lambda m: m.version, reverse=True)[0]
+        latest_pm10 = sorted(pm10_models, key=lambda m: m.version, reverse=True)[0]
+        
+        # Download and load models
+        model_dir_pm25 = latest_pm25.download()
+        model_pm25 = joblib.load(model_dir_pm25 + "/model.pkl")
+        explainer_pm25 = shap.TreeExplainer(model_pm25)
+        
+        model_dir_pm10 = latest_pm10.download()
+        model_pm10 = joblib.load(model_dir_pm10 + "/model.pkl")
+        explainer_pm10 = shap.TreeExplainer(model_pm10)
+        
+        # Store in session state with version info
+        st.session_state.update({
+            'model_pm25': model_pm25,
+            'model_pm10': model_pm10,
+            'explainer_pm25': explainer_pm25,
+            'explainer_pm10': explainer_pm10,
+            'model_versions': {
+                'pm25': latest_pm25.version,
+                'pm10': latest_pm10.version
+            }
+        })
+        
+        logger.info(f"Loaded PM2.5 model v{latest_pm25.version} and PM10 model v{latest_pm10.version}")
+        return True
+        
     except Exception as e:
         logger.error(f"Model loading failed: {str(e)}")
-        st.error("⚠️ Could not load model from registry")
-        return None, None
+        st.error("⚠️ Could not load models from registry")
+        return False
 
 # Load available cities with multiple fallback strategies
 def load_available_cities(fs):
@@ -256,20 +276,11 @@ def display_shap_explanations():
 
 # UI Components
 def display_current_metrics(city, data):
+    # Add model version info to the display
     st.subheader(f"Current Air Quality in {city}")
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("PM2.5", f"{data['pm25']:.1f} µg/m³")
-        st.metric("Temperature", f"{data['temperature']:.1f} °C")
-    with col2:
-        st.metric("PM10", f"{data['pm10']:.1f} µg/m³")
-        st.metric("Humidity", f"{data['humidity']:.0f}%")
-    with col3:
-        st.metric("Wind Speed", f"{data['wind_speed']:.1f} m/s")
-        st.metric("Pressure", f"{data.get('pressure', 0):.1f} hPa")
-    
-    st.caption(f"Last updated: {data['last_updated']}")
+    if 'model_versions' in st.session_state:
+        st.caption(f"Using models: PM2.5 v{st.session_state.model_versions['pm25']}, PM10 v{st.session_state.model_versions['pm10']}")
 
 def display_forecast(forecast, pollutant):
     if forecast is None:
