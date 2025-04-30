@@ -13,6 +13,7 @@ import joblib
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+from pandas.api.types import is_datetime64_any_dtype as is_datetime
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,10 +75,13 @@ def deploy_model(feature_store, model_registry, pollutant='pm25'):
         y_pred = model.predict(X_test)
         rmse = mean_squared_error(y_test, y_pred, squared=False)
         
-        # 5. Save model
+        # 5. Save model in proper directory structure
         model_dir = f"{pollutant}_model"
-        Path(model_dir).mkdir(exist_ok=True)
-        joblib.dump(model, f"{model_dir}/model.pkl")
+        artifacts_dir = Path(model_dir) / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        
+        model_path = artifacts_dir / "model.pkl"
+        joblib.dump(model, model_path)
         
         # 6. Register model
         model_spec = {
@@ -126,7 +130,14 @@ def check_model_freshness(model_registry, model_name):
         if not models:
             return False
         latest_model = sorted(models, key=lambda m: m.version, reverse=True)[0]
-        creation_time = latest_model.created.replace(tzinfo=None)
+        
+        # Handle timestamp conversion
+        if isinstance(latest_model.created, (int, float)):
+            # Convert from milliseconds to seconds if necessary
+            creation_time = datetime.fromtimestamp(latest_model.created / 1000)
+        else:
+            creation_time = latest_model.created.replace(tzinfo=None)
+            
         return (datetime.now() - creation_time) < timedelta(hours=24)
     except Exception as e:
         logger.error(f"Error checking model freshness: {str(e)}")
@@ -237,8 +248,16 @@ def get_city_data(fs, city):
         if city_data.empty:
             raise ValueError(f"No records found for {city}")
             
+        # Handle date conversion
         if 'date' not in city_data.columns:
-            raise ValueError("'date' column missing")
+            if 'datetime' in city_data.columns and is_datetime(city_data['datetime']):
+                city_data = city_data.rename(columns={'datetime': 'date'})
+            else:
+                raise ValueError("No valid date column found")
+        
+        # Convert to datetime if needed
+        if not is_datetime(city_data['date']):
+            city_data['date'] = pd.to_datetime(city_data['date'])
             
         latest = city_data.sort_values('date', ascending=False).iloc[0]
         
