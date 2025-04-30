@@ -5,15 +5,12 @@ import plotly.graph_objects as go
 import yaml
 import hopsworks
 import os
+from datetime import datetime, timedelta
 
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Import project modules
 from utils.config import Config
-
 from data_collection.data_collector import DataCollector
 from models.model_registry import ModelRegistry
-from evaluation.feature_importance import FeatureImportanceAnalyzer
 
 # Streamlit page config
 st.set_page_config(
@@ -46,7 +43,7 @@ def load_cities():
     try:
         with open("cities.yaml", "r") as file:
             cities = yaml.safe_load(file)
-            return [city["name"] for city in cities]
+            return [city["name"] for city in cities["cities"]]  # Correcting the YAML structure access
     except Exception as e:
         st.error(f"Error loading cities from YAML: {e}")
         return []
@@ -63,8 +60,6 @@ if 'current_data' not in st.session_state:
     st.session_state.current_data = {}
 if 'forecasts' not in st.session_state:
     st.session_state.forecasts = {}
-if 'feature_importances' not in st.session_state:
-    st.session_state.feature_importances = {}
 
 # Helper Functions
 
@@ -101,7 +96,7 @@ def prepare_input_features(city):
     ]).reshape(1, -1)
     return input_features
 
-def load_forecast(city):
+def load_forecast(city, selected_pollutant):
     if city not in st.session_state.forecasts:
         best_model = model_registry.get_best_model(name="air_quality_model")
         if best_model:
@@ -118,29 +113,16 @@ def load_forecast(city):
                 st.warning("Missing input features.")
     return st.session_state.forecasts.get(city)
 
-def get_feature_importance(city):
-    if city not in st.session_state.feature_importances:
-        analyzer = FeatureImportanceAnalyzer(model_registry)
-        best_model = model_registry.get_best_model(name="air_quality_model")
-        if best_model:
-            importance_data = analyzer.analyze(best_model)
-            st.session_state.feature_importances[city] = importance_data
-        else:
-            st.warning("Model not found for feature importance.")
-            st.session_state.feature_importances[city] = {}
-    return st.session_state.feature_importances.get(city)
-
 # ========== Sidebar ==========
 
 st.sidebar.title("Pearls AQI Predictor")
 st.sidebar.markdown("---")
 cities = load_cities()
 selected_city = st.sidebar.selectbox("Select City", cities)
-selected_pollutant = st.sidebar.radio("Select Pollutant", ["PM2.5", "PM10"])
+selected_pollutant = st.sidebar.selectbox("Select Pollutant", ["PM2.5", "PM10"])  # Using a dropdown for pollutant selection
 if st.sidebar.button("Refresh"):
     load_current_data(selected_city)
     st.session_state.forecasts.pop(selected_city, None)
-    st.session_state.feature_importances.pop(selected_city, None)
 
 # ========== Main Layout ==========
 
@@ -153,44 +135,46 @@ if selected_city not in st.session_state.current_data:
 current = st.session_state.current_data.get(selected_city)
 
 if current:
-    col1, col2, col3 = st.columns([1, 1, 1])
+    # Current Weather Info Block
+    st.subheader("Current Weather Info")
+    col1, col2 = st.columns(2)
+    
     with col1:
-        st.subheader("Current AQI Levels")
-        pollutant_value = current.get('pm25') if selected_pollutant == "PM2.5" else current.get('pm10')
-        if pollutant_value:
-            st.metric(label=f"{selected_pollutant} (µg/m³)", value=round(pollutant_value, 1))
-        else:
-            st.warning("Pollutant data not available.")
-
-    with col2:
-        st.subheader("Weather Info")
         st.metric("Temperature (°C)", round(current.get('temperature', 0), 1))
         st.metric("Humidity (%)", current.get('humidity', 0))
         st.metric("Wind Speed (m/s)", round(current.get('wind_speed', 0), 1))
-
-    with col3:
-        st.subheader("Feature Importance")
-        feature_importance = get_feature_importance(selected_city)
-        if feature_importance is not None and not feature_importance == {}:
-            st.dataframe(feature_importance)
-        else:
-            st.info("No feature importance available.")
-
-    st.markdown("---")
     
-    forecast = load_forecast(selected_city)
+    # Current AQI Level Block
+    col1, col2 = st.columns(2)
+    with col1:
+        if selected_pollutant == "PM2.5":
+            st.metric("PM2.5 (µg/m³)", round(current.get('pm25', 0), 1))
+        else:
+            st.metric("PM10 (µg/m³)", round(current.get('pm10', 0), 1))
+
+    # Forecasting Graph Block
+    st.subheader("3-Day Forecast")
+    forecast = load_forecast(selected_city, selected_pollutant)
 
     if forecast is not None:
-        st.subheader("3-Day Forecast")
-
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=forecast['date'],
-            y=forecast['pm25'] if selected_pollutant == "PM2.5" else forecast['pm10'],
-            mode='lines+markers',
-            name=f"Forecasted {selected_pollutant}",
-            line=dict(color="#636EFA", width=3)
-        ))
+        if selected_pollutant == "PM2.5":
+            fig.add_trace(go.Scatter(
+                x=forecast['date'],
+                y=forecast['pm25'],
+                mode='lines+markers',
+                name="Forecasted PM2.5",
+                line=dict(color="#636EFA", width=3)
+            ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=forecast['date'],
+                y=forecast['pm10'],
+                mode='lines+markers',
+                name="Forecasted PM10",
+                line=dict(color="#FF5733", width=3)
+            ))
+
         fig.update_layout(
             xaxis_title="Date",
             yaxis_title=f"{selected_pollutant} (µg/m³)",
