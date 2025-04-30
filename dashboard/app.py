@@ -8,6 +8,10 @@ import hopsworks
 import plotly.graph_objects as go
 import streamlit as st
 from utils.config import Config
+import shap
+import matplotlib.pyplot as plt
+import joblib
+from sklearn.ensemble import RandomForestRegressor  # Example model, replace with yours
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +28,10 @@ def init_session_state():
         'current_data': {},
         'forecasts': {},
         'pollutant': 'PM2.5',
-        'last_update': None
+        'last_update': None,
+        'shap_values': None,
+        'model': None,
+        'explainer': None
     }
     for key, val in session_defaults.items():
         if key not in st.session_state:
@@ -41,21 +48,46 @@ def connect_feature_store():
             hostname_verification=False
         )
         fs = project.get_feature_store()
+        mr = project.get_model_registry()
         st.session_state.feature_store = fs
+        st.session_state.model_registry = mr
         st.session_state.fs_connected = True
         logger.info("Successfully connected to Hopsworks")
-        return fs
+        return fs, mr
     except Exception as e:
         logger.error(f"Hopsworks connection failed: {str(e)}")
         st.error("🔴 Failed to connect to Hopsworks Feature Store")
         st.error(f"Error details: {str(e)}")
-        return None
+        return None, None
+
+# Load ML model from Hopsworks model registry
+def load_model(model_registry):
+    try:
+        # Get the latest model from registry
+        model = model_registry.get_model(
+            name="aqi_prediction_model",
+            version=1
+        )
+        model_dir = model.download()
+        model = joblib.load(model_dir + "/aqi_model.pkl")
+        
+        # Create SHAP explainer
+        explainer = shap.TreeExplainer(model)
+        
+        st.session_state.model = model
+        st.session_state.explainer = explainer
+        logger.info("Successfully loaded model and explainer")
+        return model, explainer
+    except Exception as e:
+        logger.error(f"Model loading failed: {str(e)}")
+        st.error("⚠️ Could not load model from registry")
+        return None, None
 
 # Load available cities with multiple fallback strategies
 def load_available_cities(fs):
     try:
         # Try direct feature view access
-        fv = fs.get_feature_view("karachi_aqi_features", 1)
+        fv = fs.get_feature_view("aqi_features", 1)
         data = fv.get_batch_data()
         
         if not isinstance(data, pd.DataFrame):
@@ -80,7 +112,7 @@ def load_available_cities(fs):
 # Get most recent data for a city with comprehensive validation
 def get_city_data(fs, city):
     try:
-        fv = fs.get_feature_view("karachi_aqi_features", 1)
+        fv = fs.get_feature_view("aqi_features", 1)
         
         # Method 1: Optimized Hopsworks query
         try:
@@ -109,14 +141,21 @@ def get_city_data(fs, city):
             'pm10': float,
             'temperature': float,
             'humidity': float,
-            'wind_speed': float
+            'wind_speed': float,
+            'pressure': float,
+            'precipitation': float
         }
         
-        result = {'last_updated': datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        result = {
+            'last_updated': latest['date'].strftime("%Y-%m-%d %H:%M:%S"),
+            'features': {}
+        }
+        
         for field, dtype in required_fields.items():
             if field not in latest:
                 raise ValueError(f"Missing field: {field}")
-            result[field] = dtype(latest[field])
+            result['features'][field] = dtype(latest[field])
+            result[field] = dtype(latest[field])  # Also keep in root for backward compat
         
         return result
         
@@ -125,22 +164,45 @@ def get_city_data(fs, city):
         st.error(f"⚠️ Could not load data for {city}")
         return None
 
-# Generate forecast (replace with your actual model)
+# Generate forecast with SHAP explanations
 def generate_forecast(current_data, pollutant):
     try:
-        # Get base value from current data
-        base_value = current_data[f'pm{pollutant.replace(".", "")}']
+        if st.session_state.model is None or st.session_state.explainer is None:
+            raise ValueError("Model or explainer not loaded")
+            
+        # Prepare features for prediction
+        feature_names = ['temperature', 'humidity', 'wind_speed', 'pressure', 'precipitation']
+        feature_values = [current_data['features'][f] for f in feature_names]
+        X = pd.DataFrame([feature_values], columns=feature_names)
         
-        # Generate dates (next 3 days)
+        # Generate forecast (next 3 days)
         dates = [(datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d") 
                 for i in range(1, 4)]
         
-        # Mock prediction - REPLACE WITH ACTUAL MODEL
-        predictions = [
-            base_value * (1 + np.random.uniform(-0.1, 0.2)),
-            base_value * (1 + np.random.uniform(-0.15, 0.25)),
-            base_value * (1 + np.random.uniform(-0.2, 0.3))
-        ]
+        # Predict for each day (in reality you might have different features for future days)
+        predictions = []
+        shap_values_list = []
+        
+        for _ in range(3):
+            # Predict (replace with your actual forecasting logic)
+            pred = st.session_state.model.predict(X)[0]
+            predictions.append(pred)
+            
+            # Calculate SHAP values
+            shap_values = st.session_state.explainer.shap_values(X)
+            shap_values_list.append(shap_values)
+            
+            # For demo, modify features slightly for next prediction
+            X['temperature'] *= 1.02
+            X['humidity'] *= 0.98
+        
+        # Store SHAP values for the first prediction
+        st.session_state.shap_values = {
+            'values': shap_values_list[0][0],  # First prediction's SHAP values
+            'features': feature_names,
+            'feature_values': feature_values,
+            'base_value': st.session_state.explainer.expected_value
+        }
         
         return pd.DataFrame({
             'date': dates,
@@ -152,21 +214,67 @@ def generate_forecast(current_data, pollutant):
         st.error("⚠️ Forecast generation failed")
         return None
 
+# Display SHAP explanation plot
+def display_shap_explanations():
+    if st.session_state.shap_values is None:
+        return
+        
+    st.subheader("Feature Importance Explanation (SHAP Values)")
+    
+    # Create SHAP explanation object
+    shap_values = st.session_state.shap_values['values']
+    features = st.session_state.shap_values['features']
+    feature_values = st.session_state.shap_values['feature_values']
+    base_value = st.session_state.shap_values['base_value']
+    
+    # Create SHAP explanation object
+    explanation = shap.Explanation(
+        values=shap_values,
+        base_values=base_value,
+        data=feature_values,
+        feature_names=features
+    )
+    
+    # Plot using matplotlib
+    st.set_option('deprecation.showPyplotGlobalUse', False)
+    fig, ax = plt.subplots()
+    shap.plots.waterfall(explanation[0], max_display=10, show=False)
+    plt.tight_layout()
+    
+    # Display in Streamlit
+    st.pyplot(fig)
+    
+    # Add interpretation help
+    with st.expander("How to interpret SHAP values"):
+        st.markdown("""
+        - **Blue bars**: Features reducing the prediction
+        - **Red bars**: Features increasing the prediction
+        - **Length**: Magnitude of the feature's impact
+        - **Base value**: Average model output
+        - **f(x)**: Final prediction value
+        """)
+
 # UI Components
 def display_current_metrics(city, data):
     st.subheader(f"Current Air Quality in {city}")
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("PM2.5", f"{data['pm25']:.1f} µg/m³")
         st.metric("Temperature", f"{data['temperature']:.1f} °C")
     with col2:
         st.metric("PM10", f"{data['pm10']:.1f} µg/m³")
         st.metric("Humidity", f"{data['humidity']:.0f}%")
+    with col3:
+        st.metric("Wind Speed", f"{data['wind_speed']:.1f} m/s")
+        st.metric("Pressure", f"{data.get('pressure', 0):.1f} hPa")
     
     st.caption(f"Last updated: {data['last_updated']}")
 
 def display_forecast(forecast, pollutant):
+    if forecast is None:
+        return
+        
     pollutant_col = f'predicted_{pollutant.lower().replace(".", "")}'
     
     fig = go.Figure()
@@ -186,6 +294,9 @@ def display_forecast(forecast, pollutant):
     )
     
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Display SHAP explanations after forecast
+    display_shap_explanations()
 
 # Main App
 def main():
@@ -204,9 +315,13 @@ def main():
     # Connect to Hopsworks
     if not st.session_state.fs_connected:
         with st.spinner("Connecting to Feature Store..."):
-            fs = connect_feature_store()
+            fs, mr = connect_feature_store()
             if not fs:
                 st.stop()
+            
+            # Load model after connecting
+            with st.spinner("Loading prediction model..."):
+                load_model(mr)
     
     # Load cities
     if not st.session_state.cities:
@@ -234,6 +349,7 @@ def main():
     if st.sidebar.button("Refresh Data"):
         st.session_state.current_data.pop(selected_city, None)
         st.session_state.forecasts.pop(selected_city, None)
+        st.session_state.shap_values = None
         st.rerun()
     
     # Main content
@@ -261,8 +377,7 @@ def main():
                 )
         
         forecast = st.session_state.forecasts.get(selected_city)
-        if forecast is not None:
-            display_forecast(forecast, st.session_state.pollutant)
+        display_forecast(forecast, st.session_state.pollutant)
     else:
         st.error(f"Failed to load data for {selected_city}")
 
