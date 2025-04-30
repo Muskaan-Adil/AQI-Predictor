@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -66,23 +65,28 @@ def load_current_data(city):
         st.error(f"City '{city}' not found in configuration.")
         return None
     try:
-        data = data_collector.collect_data(city_info)
-        pm25 = data.get('aqi', {}).get(self.default_parameter)
-        pm10 = data.get('aqi', {}).get('pm10')
-        weather = data.get('weather', {})
-        temperature = weather.get('main', {}).get('temp')
-        humidity = weather.get('main', {}).get('humidity')
-        wind_speed = weather.get('wind', {}).get('speed')
+        raw_data = data_collector.collect_data(city_info)
+        if raw_data:
+            aqi_data = raw_data.get('aqi', {})
+            weather_data = raw_data.get('weather', {})
+            pm25 = aqi_data.get(data_collector.default_parameter)
+            pm10 = aqi_data.get('pm10')
+            temperature = weather_data.get('main', {}).get('temp')
+            humidity = weather_data.get('main', {}).get('humidity')
+            wind_speed = weather_data.get('wind', {}).get('speed')
 
-        # Store extracted data in session state
-        st.session_state.current_data[city] = {
-            'pm25': pm25,
-            'pm10': pm10,
-            'temperature': temperature,
-            'humidity': humidity,
-            'wind_speed': wind_speed
-        }
-        return st.session_state.current_data[city]
+            # Store extracted data in session state
+            st.session_state.current_data[city] = {
+                'pm25': pm25,
+                'pm10': pm10,
+                'temperature': temperature,
+                'humidity': humidity,
+                'wind_speed': wind_speed
+            }
+            return st.session_state.current_data[city]
+        else:
+            st.error(f"Failed to collect data for {city}.")
+            return None
     except Exception as e:
         st.error(f"Failed to load data for {city}: {e}")
         return None
@@ -181,12 +185,19 @@ if current_data:
     with col1:
         st.markdown("### Current PM2.5")
         pm25 = current_data.get('pm25')
-        st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
-        st.markdown(f"**Category**: {get_aqi_category(pm25)}")
+        if pm25 is not None:
+            st.markdown(f"<h1 style='color: {get_aqi_color(pm25)};'>{pm25:.1f}</h1>", unsafe_allow_html=True)
+            st.markdown(f"**Category**: {get_aqi_category(pm25)}")
+        else:
+            st.markdown("<h1 style='color: #CCCCCC;'>No Data Available</h1>", unsafe_allow_html=True)
+            st.markdown("**Category**: Unknown")
     with col2:
         st.markdown("### Current PM10")
         pm10 = current_data.get('pm10')
-        st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
+        if pm10 is not None:
+            st.markdown(f"<h1>{pm10:.1f}</h1>", unsafe_allow_html=True)
+        else:
+            st.markdown("<h1>No Data Available</h1>", unsafe_allow_html=True)
     with col3:
         st.markdown("### Weather Conditions")
         temp = current_data.get('temperature')
@@ -288,7 +299,7 @@ else:
 
 # Health impact section
 st.markdown("## Health Impact")
-st.markdown("""
+st.markdown(""" 
 ### Understanding PM2.5 and PM10 Health Effects
 **PM2.5** (fine particles ≤ 2.5μm):
 - Can penetrate deep into the lungs and bloodstream
