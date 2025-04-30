@@ -26,6 +26,18 @@ except ImportError:
         HOPSWORKS_API_KEY = "your_api_key_here"
         HOPSWORKS_HOST = "c.app.hopsworks.ai"
 
+# Model configuration with exact timestamps
+MODEL_CONFIG = {
+    'pm25': {
+        'name': 'Karachi_pm25',
+        'timestamp': '20250430031524',  # For Karachi_pm25_20250430031524.joblib
+    },
+    'pm10': {
+        'name': 'Karachi_pm10',
+        'timestamp': '20250430031535',  # For Karachi_pm10_20250430031535.joblib
+    }
+}
+
 # Initialize session state
 def init_session_state():
     session_defaults = {
@@ -40,7 +52,10 @@ def init_session_state():
         'model_pm10': None,
         'explainer_pm25': None,
         'explainer_pm10': None,
-        'model_versions': {'pm25': None, 'pm10': None},
+        'model_versions': {
+            'pm25': MODEL_CONFIG['pm25']['timestamp'],
+            'pm10': MODEL_CONFIG['pm10']['timestamp']
+        },
         'last_model_check': None,
         'feature_store': None,
         'model_registry': None
@@ -50,8 +65,10 @@ def init_session_state():
             st.session_state[key] = val
 
 def deploy_model(model_registry, pollutant='pm25'):
-    """Deploys the latest version of an existing model from registry"""
-    model_name = f"Karachi_{pollutant}"
+    """Deploys the specific timestamped model from registry"""
+    config = MODEL_CONFIG[pollutant]
+    model_name = config['name']
+    target_timestamp = config['timestamp']
     
     try:
         # Get all versions of the model
@@ -60,21 +77,37 @@ def deploy_model(model_registry, pollutant='pm25'):
             st.warning(f"No existing {model_name} model found in registry")
             return None
 
-        # Get the latest version
-        latest_model = sorted(existing_models, key=lambda m: m.version, reverse=True)[0]
-        st.success(f"🚀 Found {model_name} v{latest_model.version} in registry")
+        # Find model with matching timestamp
+        target_model = None
+        for model in existing_models:
+            if target_timestamp in model.name:
+                target_model = model
+                break
 
-        # Download the model
-        model_dir = latest_model.download()
+        if not target_model:
+            available_models = [m.name for m in existing_models]
+            raise ValueError(
+                f"Model with timestamp {target_timestamp} not found. "
+                f"Available models: {available_models}"
+            )
+
+        st.success(f"🚀 Found {model_name} with timestamp {target_timestamp}")
+
+        # Download and find the exact .joblib file
+        model_dir = target_model.download()
+        model_file = next(
+            Path(model_dir).rglob(f"*{target_timestamp}.joblib"), 
+            None
+        )
         
-        # Search for .joblib files recursively
-        model_files = list(Path(model_dir).rglob("*.joblib"))
-        
-        if not model_files:
-            raise FileNotFoundError(f"No .joblib file found in {model_dir}")
+        if not model_file:
+            found_files = [f.name for f in Path(model_dir).rglob('*')]
+            raise FileNotFoundError(
+                f"File *{target_timestamp}.joblib not found in {model_dir}\n"
+                f"Found files: {found_files}"
+            )
             
-        # Load the first found .joblib file
-        model_file = model_files[0]
+        # Load the model
         model = joblib.load(model_file)
         st.success(f"✅ Successfully loaded {model_name} from {model_file.name}")
         return model
@@ -85,40 +118,35 @@ def deploy_model(model_registry, pollutant='pm25'):
         return None
 
 def load_models(model_registry):
-    """Loads latest versions of all existing models from registry"""
+    """Loads both PM2.5 and PM10 models with specific timestamps"""
     try:
-        # Try to load both models
         pm25_model = deploy_model(model_registry, 'pm25')
         pm10_model = deploy_model(model_registry, 'pm10')
         
         if not pm25_model and not pm10_model:
             raise RuntimeError("No models could be loaded")
             
-        # Update session state with loaded models
+        # Update session state
         if pm25_model:
             st.session_state.model_pm25 = pm25_model
             st.session_state.explainer_pm25 = shap.TreeExplainer(pm25_model)
-            # Get version number
-            pm25_models = model_registry.get_models("Karachi_pm25")
-            if pm25_models:
-                latest = sorted(pm25_models, key=lambda m: m.version, reverse=True)[0]
-                st.session_state.model_versions['pm25'] = latest.version
-            
+        
         if pm10_model:
             st.session_state.model_pm10 = pm10_model
             st.session_state.explainer_pm10 = shap.TreeExplainer(pm10_model)
-            # Get version number
-            pm10_models = model_registry.get_models("Karachi_pm10")
-            if pm10_models:
-                latest = sorted(pm10_models, key=lambda m: m.version, reverse=True)[0]
-                st.session_state.model_versions['pm10'] = latest.version
                 
         return True
         
     except Exception as e:
         logger.error(f"Model loading failed: {str(e)}")
-        st.error("⚠️ Could not load models from registry")
+        st.error(f"⚠️ Model loading error: {str(e)}")
         return False
+
+[Rest of your functions remain exactly the same:
+ connect_feature_store(), check_model_freshness(), 
+ load_available_cities(), get_city_data(), 
+ generate_forecast(), display_shap_explanations(),
+ display_current_metrics(), display_forecast(), main()]
 
 def connect_feature_store():
     try:
