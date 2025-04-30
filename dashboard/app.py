@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 # Configure page
 st.set_page_config(
-    page_title="Karachi AQI Dashboard",
+    page_title="AQI Dashboard",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -63,13 +63,13 @@ def main():
         key='pollutant_select'
     )
     
-    st.title(f"Karachi Air Quality Dashboard")
+    st.title(f"Air Quality Dashboard")
     
     # Generate mock data
     current, forecast = generate_mock_data()
     
     # Current metrics
-    st.subheader(f"Current Air Quality in Karachi")
+    st.subheader(f"Current Air Quality")
     
     col1, col2, col3 = st.columns(3)
     with col1:
