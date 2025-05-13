@@ -112,7 +112,7 @@ This infrastructure choice significantly improved the reproducibility and mainta
 
 ### Web Dashboard
 
-I created a web dashboard in `app.py` that provides:
+I created a web dashboard "https://aqi-predictor1.streamlit.app/" in `app.py` that provides:
 - Interactive visualizations of current and forecasted AQI levels
 - Comparison views between different models' predictions
 - Historical trend analysis
