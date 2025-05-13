@@ -38,7 +38,7 @@ The application follows a modular architecture:
 6. Launch the dashboard: streamlit run dashboard.app
 
 ## Using the Dashboard
-The dashboard allows you to:
+The dashboard "https://aqi-predictor1.streamlit.app/" allows you to:
 - Select a city to view its air quality data
 - Choose between PM2.5 and PM10 predictions
 - View current conditions and 3-day forecasts
